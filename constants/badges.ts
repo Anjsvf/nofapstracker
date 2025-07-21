@@ -26,7 +26,7 @@ const badgeImages = {
   chad: require('@/assets/images/badges/pre_humano.png'),
   super_chad: require('@/assets/images/badges/pre_humano.png'),
   giga_chad: require('@/assets/images/badges/pre_humano.png'),
-  deus_chad: require('@/assets/images/badges/pre_humano.png'),
+  deus_chad: require('@/assets/images/badges/deus_chad.webp'),
 };
 
 export const BADGES: Badge[] = [
@@ -35,21 +35,21 @@ export const BADGES: Badge[] = [
     key: 'pre_humano', 
     name: 'Pré-Humano', 
     days: 0, 
-    category: 'Prata',
+    category: 'Divisão Zero',
     imageSource: badgeImages.pre_humano
   },
   { 
     key: 'rece_nascido', 
     name: 'Recém-Nascido', 
     days: 1, 
-    category: 'Prata',
+    category: 'Divisão Zero',
     imageSource: badgeImages.aluno
   },
   { 
     key: 'noob', 
     name: 'Noob', 
     days: 3, 
-    category: 'Prata',
+    category: 'Divisão Zero',
     imageSource: badgeImages.noob
   },
 
@@ -58,21 +58,21 @@ export const BADGES: Badge[] = [
     key: 'cidadao_comum', 
     name: 'Cidadão Comum', 
     days: 4, 
-    category: 'Combat Apprentice',
+    category: 'Divisão Beta',
     imageSource: badgeImages.cidadao_comum
   },
   { 
     key: 'esforcado', 
     name: 'Esforçado', 
     days: 5, 
-    category: 'Combat Apprentice',
+    category: 'Divisão Beta',
     imageSource: badgeImages.esforcado
   },
   { 
     key: 'disciplinado', 
     name: 'Disciplinado', 
     days: 7, 
-    category: 'Combat Apprentice',
+    category: 'Divisão Beta',
     imageSource: badgeImages.disciplinado
   },
 
@@ -196,21 +196,21 @@ export const BADGES: Badge[] = [
     key: 'chad', 
     name: 'Chad', 
     days: 240, 
-    category: 'God of the Game',
+    category: 'Divisão Prime',
     imageSource: badgeImages.chad
   },
   { 
     key: 'super_chad', 
     name: 'Super Chad', 
     days: 300, 
-    category: 'God of the Game',
+    category: 'Divisão Prime',
     imageSource: badgeImages.super_chad
   },
   { 
     key: 'giga_chad', 
     name: 'Giga Chad', 
     days: 365, 
-    category: 'God of the Game',
+    category: 'Divisão Prime',
     imageSource: badgeImages.giga_chad
   },
 
@@ -219,19 +219,19 @@ export const BADGES: Badge[] = [
     key: 'deus_chad', 
     name: 'Deus Chad', 
     days: 366, 
-    category: 'Immortal Deity',
+    category: 'Divisão Imortal',
     imageSource: badgeImages.deus_chad
   },
 ];
 
 export const BADGE_CATEGORIES = [
-  'Prata',
-  'Combat Apprentice', 
+  'Divisão Zero',
+  'Divisão Beta', 
   'Rising Warrior',
   'Tactical Master',
   'Elite Veteran',
   'Forged Legend',
   'Immortal Hero',
-  'God of the Game',
-  'Immortal Deity'
+  'Divisão Prime',
+  'Divisão Imortal'
 ] as const;

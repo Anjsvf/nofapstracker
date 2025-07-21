@@ -40,10 +40,13 @@ export class NotificationService {
         return;
       }
 
-      await Notifications.presentNotificationAsync({
-        title: '🏆 Nova Conquista Desbloqueada!',
-        body: `Parabéns! Você conquistou: ${badge.name}`,
-        data: { badge },
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🏆 Nova Conquista Desbloqueada!',
+          body: `Parabéns! Você conquistou: ${badge.name}`,
+          data: { badge },
+        },
+        trigger: null, // Show immediately
       });
     } catch (error) {
       console.error('Error showing badge notification:', error);
@@ -63,10 +66,13 @@ export class NotificationService {
         return;
       }
 
-      await Notifications.presentNotificationAsync({
-        title: '🎉 Dia Completo!',
-        body: `Mais um dia conquistado! Sequência atual: ${streak} dias`,
-        data: { streak },
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🎉 Dia Completo!',
+          body: `Mais um dia conquistado! Sequência atual: ${streak} dias`,
+          data: { streak },
+        },
+        trigger: null, // Show immediately
       });
     } catch (error) {
       console.error('Error showing day completion notification:', error);
