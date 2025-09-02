@@ -1,65 +1,64 @@
-import { Tabs } from 'expo-router';
+import { Tabs, usePathname } from 'expo-router';
 import { MessageCircle, Timer, Trophy, User } from 'lucide-react-native';
 import { Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
-  
+  const pathname = usePathname(); 
+
+  const isChat = pathname === '/chat'; 
+
   const tabBarHeight = Platform.OS === 'ios' ? 80 + insets.bottom : 70 + insets.bottom;
-  
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: [
           styles.tabBar,
+         
           {
+            borderTopWidth: 0,
             height: tabBarHeight,
             paddingBottom: insets.bottom + 8,
             paddingTop: 8,
-          }
+            display: isChat ? 'none' : 'flex', 
+          },
         ],
         tabBarActiveTintColor: '#ffffff',
-        tabBarInactiveTintColor: '#a78bfa',
+        tabBarInactiveTintColor: '#64748b',
         tabBarBackground: () => (
           <View style={[styles.tabBarBackground, { paddingBottom: insets.bottom }]} />
         ),
-      }}>
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Timer',
-          tabBarIcon: ({ size, color }) => (
-            <Timer size={size} color={color} />
-          ),
+          title: 'Contador',
+          tabBarIcon: ({ size, color }) => <Timer size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="badges"
         options={{
           title: 'Badges',
-          tabBarIcon: ({ size, color }) => (
-            <Trophy size={size} color={color} />
-          ),
+          tabBarIcon: ({ size, color }) => <Trophy size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
           title: 'Chat',
-          tabBarIcon: ({ size, color }) => (
-            <MessageCircle size={size} color={color} />
-          ),
+          tabBarIcon: ({ size, color }) => <MessageCircle size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
-          tabBarIcon: ({ size, color }) => (
-            <User size={size} color={color} />
-          ),
+          title: 'Perfil',
+          tabBarIcon: ({ size, color }) => <User size={size} color={color} />,
         }}
       />
     </Tabs>
@@ -68,9 +67,9 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: '#2a1c3a',
+    backgroundColor: '#1e293b',
     borderTopWidth: 1,
-    borderTopColor: '#4c3368',
+    borderTopColor: '#334155',
     position: 'absolute',
     bottom: 0,
     left: 0,
@@ -78,6 +77,6 @@ const styles = StyleSheet.create({
   },
   tabBarBackground: {
     flex: 1,
-    backgroundColor: '#2a1c3a',
+    backgroundColor: '#000000',
   },
 });

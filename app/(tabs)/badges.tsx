@@ -4,10 +4,10 @@ import { BADGE_CATEGORIES } from '@/constants/badges';
 import { BadgeService } from '@/services/badgeService';
 import { StorageService } from '@/services/storageService';
 import { Badge } from '@/types';
-import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,24 +21,29 @@ export default function BadgesScreen() {
   const [currentStreak, setCurrentStreak] = useState(0);
   const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  
+  const [refreshing, setRefreshing] = useState(false);
+
   useEffect(() => {
     loadCurrentStreak();
   }, []);
 
   const loadCurrentStreak = useCallback(async () => {
     try {
+      setRefreshing(true);
       const timerState = await StorageService.loadTimerState();
       if (timerState) {
         setCurrentStreak(timerState.currentStreak || 0);
       }
     } catch (error) {
       console.error('Error loading current streak:', error);
+    } finally {
+      setRefreshing(false);
     }
   }, []);
 
   const allBadges = BadgeService.getAllBadges();
   const currentBadge = BadgeService.getBadgeInfo(currentStreak);
+  const unlockedBadges = allBadges.filter((b) => currentStreak >= b.days);
 
   const openBadgeModal = useCallback((badge: Badge) => {
     setSelectedBadge(badge);
@@ -50,73 +55,133 @@ export default function BadgesScreen() {
     setSelectedBadge(null);
   }, []);
 
-  const renderBadge = useCallback((badge: Badge) => {
-    const isUnlocked = currentStreak >= badge.days;
-    const isCurrent = currentBadge?.key === badge.key;
-    
-    return (
-      <BadgeCard
-        key={badge.key}
-        badge={badge}
-        isUnlocked={isUnlocked}
-        isCurrent={isCurrent}
-        currentStreak={currentStreak}
-        onPress={() => openBadgeModal(badge)}
-      />
-    );
-  }, [currentStreak, currentBadge, openBadgeModal]);
+  const renderBadge = useCallback(
+    (badge: Badge) => {
+      const isUnlocked = currentStreak >= badge.days;
+      const isCurrent = currentBadge?.key === badge.key;
+
+      return (
+        <BadgeCard
+          key={badge.key}
+          badge={badge}
+          isUnlocked={isUnlocked}
+          isCurrent={isCurrent}
+          currentStreak={currentStreak}
+          onPress={() => openBadgeModal(badge)}
+          
+        />
+      );
+    },
+    [currentStreak, currentBadge, openBadgeModal]
+  );
 
   const getBadgesByCategory = useCallback((category: string) => {
     return BadgeService.getBadgesByCategory(category);
   }, []);
 
   return (
-    <LinearGradient colors={['#3d2050', '#2a1c3a', '#1a0f2e']} style={[styles.container, { paddingTop: insets.top + 20 }]}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+     
       <View style={styles.header}>
-        <Text style={styles.title}>Conquistas</Text>
+        <Text style={styles.title}>🏆 Conquistas</Text>
         <Text style={styles.subtitle}>
-          {allBadges.filter(b => currentStreak >= b.days).length} de {allBadges.length} desbloqueadas
+          {unlockedBadges.length} de {allBadges.length} desbloqueadas
         </Text>
       </View>
 
+     
+      <View style={styles.statsContainer}>
+        <View style={styles.statsCard}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{currentStreak}</Text>
+            <Text style={styles.statLabel}>Dias</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{unlockedBadges.length}</Text>
+            <Text style={styles.statLabel}>Badges</Text>
+          </View>
+        </View>
+      </View>
+
+      
       <View style={styles.currentBadgeContainer}>
         <Text style={styles.currentBadgeLabel}>Conquista Atual</Text>
         {currentBadge ? (
-          <TouchableOpacity 
-            style={styles.currentBadgeInfo}
+          <TouchableOpacity
+            style={styles.currentBadgeCard}
             onPress={() => openBadgeModal(currentBadge)}
-            activeOpacity={0.7}
+            activeOpacity={0.8}
           >
-            <Image 
-              source={currentBadge.imageSource}
-              style={styles.currentBadgeImage}
-              resizeMode="cover"
-            />
-            <Text style={styles.currentBadgeName}>{currentBadge.name}</Text>
+            <View style={styles.currentBadgeGradient}>
+              <Image
+                source={currentBadge.imageSource}
+                style={styles.currentBadgeImage}
+                resizeMode="cover"
+              />
+            </View>
+            <View style={styles.currentBadgeInfo}>
+              <Text style={styles.currentBadgeName}>{currentBadge.name}</Text>
+              <Text style={styles.currentBadgeDesc}>
+                {currentBadge.days === 0 ? 'Badge inicial' : `${currentBadge.days} dias de foco`}
+              </Text>
+            </View>
           </TouchableOpacity>
         ) : (
-          <Text style={styles.noBadgeText}>Comece sua jornada!</Text>
+          <View style={styles.noBadgeCard}>
+            <Text style={styles.noBadgeText}> Comece sua jornada!</Text>
+            <Text style={styles.noBadgeSubtext}>
+              Complete sua primeira sessão para desbloquear badges
+            </Text>
+          </View>
         )}
       </View>
 
-      <ScrollView 
-        style={styles.scrollView} 
-        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+     
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent, 
+          { paddingBottom: insets.bottom + 100 }
+        ]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={loadCurrentStreak}
+            tintColor="#3b82f6"
+            colors={['#07101eff', '#1e40af']}
+          />
+        }
       >
-        {BADGE_CATEGORIES.map(category => {
+        {BADGE_CATEGORIES.map((category) => {
           const categoryBadges = getBadgesByCategory(category);
           if (categoryBadges.length === 0) return null;
-          
+
+          const categoryUnlocked = categoryBadges.filter(b => currentStreak >= b.days).length;
+
           return (
             <View key={category} style={styles.categoryContainer}>
-              <Text style={styles.categoryTitle}>{category}</Text>
+              <View style={styles.categoryHeader}>
+                <Text style={styles.categoryTitle}>{category}</Text>
+                <Text style={styles.categoryProgress}>
+                  {categoryUnlocked}/{categoryBadges.length}
+                </Text>
+              </View>
+              
               <View style={styles.badgesGrid}>
                 {categoryBadges.map(renderBadge)}
               </View>
             </View>
           );
         })}
+
+       
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            Continue praticando para desbloquear mais badges! 💪
+          </Text>
+        </View>
       </ScrollView>
 
       <BadgeModal
@@ -126,85 +191,198 @@ export default function BadgesScreen() {
         currentBadge={currentBadge}
         onClose={closeBadgeModal}
       />
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#000000',
   },
+  
+ 
   header: {
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginBottom: 30,
+    paddingTop: 20,
+    paddingBottom: 16,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontFamily: 'Inter-Bold',
     color: '#ffffff',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#a78bfa',
+    marginBottom: 4,
     textAlign: 'center',
   },
-  currentBadgeContainer: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(139, 92, 246, 0.2)',
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 30,
-    borderWidth: 1,
-    borderColor: '#8b5cf6',
-  },
-  currentBadgeLabel: {
-    fontSize: 14,
+  subtitle: {
+    fontSize: 15,
     fontFamily: 'Inter-Medium',
-    color: '#a78bfa',
-    marginBottom: 8,
+    color: '#64748b',
+    textAlign: 'center',
+    opacity: 0.9,
   },
-  currentBadgeInfo: {
+
+  // Stats
+  statsContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  statsCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statNumber: {
+    fontSize: 24,
+    fontFamily: 'Inter-Bold',
+    color: '#ffffff',
+    marginBottom: 2,
+  },
+  statLabel: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.8)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: 'rgba(100, 116, 139, 0.3)',
+  },
+
+  // Current Badge
+  currentBadgeContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 24,
+  },
+  currentBadgeLabel: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: '#ffffff',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  currentBadgeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  currentBadgeGradient: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+    backgroundColor: '#000',
   },
   currentBadgeImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#ffd700',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  currentBadgeInfo: {
+    flex: 1,
   },
   currentBadgeName: {
     fontSize: 18,
     fontFamily: 'Inter-SemiBold',
     color: '#ffffff',
-    marginLeft: 12,
+    marginBottom: 2,
+  },
+  currentBadgeDesc: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  noBadgeCard: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(100, 116, 139, 0.2)',
   },
   noBadgeText: {
     fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#64748b',
+    fontFamily: 'Inter-SemiBold',
+    color: '#ffffff',
+    marginBottom: 4,
   },
+  noBadgeSubtext: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
+  },
+
+  // Scroll Content
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
     paddingHorizontal: 20,
   },
+  
+  // Categories
   categoryContainer: {
-    marginBottom: 30,
+    marginBottom: 28,
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   categoryTitle: {
     fontSize: 20,
     fontFamily: 'Inter-SemiBold',
     color: '#ffffff',
-    marginBottom: 16,
   },
+  categoryProgress: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#64748b',
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  
+  // Grid
   badgesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
+    gap: 8,
+  },
+
+  // Footer
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    marginTop: 20,
+  },
+  footerText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
   },
 });

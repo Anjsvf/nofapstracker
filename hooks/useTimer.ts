@@ -1,7 +1,7 @@
 import { BadgeService } from '@/services/badgeService';
 import { NotificationService } from '@/services/notificationService';
 import { StorageService } from '@/services/storageService';
-import { TimerState } from '@/types';
+import { Badge, TimerState } from '@/types';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Platform } from 'react-native';
 
@@ -16,34 +16,30 @@ const INITIAL_TIMER_STATE: TimerState = {
 export function useTimer() {
   const [timerState, setTimerState] = useState<TimerState>(INITIAL_TIMER_STATE);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [showManualSetup, setShowManualSetup] = useState(false);
 
-  // Load timer state on mount
+
   useEffect(() => {
     loadTimerState();
-    
-    // Request notification permissions on app start (mobile only)
     if (Platform.OS !== 'web') {
       NotificationService.requestPermissions().catch(console.error);
     }
   }, []);
 
-  // Update current time every second
+  
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-
+    const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Save timer state whenever it changes
+  
   useEffect(() => {
     if (timerState !== INITIAL_TIMER_STATE) {
       StorageService.saveTimerState(timerState).catch(console.error);
     }
   }, [timerState]);
 
-  // Check for completed days and update streak
+  
   useEffect(() => {
     if (timerState.isRunning && timerState.startTime) {
       checkForCompletedDays();
@@ -55,6 +51,8 @@ export function useTimer() {
       const saved = await StorageService.loadTimerState();
       if (saved) {
         setTimerState(saved);
+      } else {
+        setShowManualSetup(true);
       }
     } catch (error) {
       console.error('Error loading timer state:', error);
@@ -65,11 +63,10 @@ export function useTimer() {
     if (!timerState.startTime || !timerState.isRunning) return;
 
     const elapsed = currentTime - timerState.startTime;
-    const daysDuration = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const daysDuration = 24 * 60 * 60 * 1000;
     const completedDays = Math.floor(elapsed / daysDuration);
 
     if (completedDays > timerState.totalDaysCompleted) {
-      // New day(s) completed
       const newDaysCompleted = completedDays - timerState.totalDaysCompleted;
       const newStreak = timerState.currentStreak + newDaysCompleted;
       
@@ -79,7 +76,6 @@ export function useTimer() {
         totalDaysCompleted: completedDays,
       }));
 
-      // Check for new badge achievement
       const currentBadge = BadgeService.getBadgeInfo(timerState.currentStreak);
       const newBadge = BadgeService.getBadgeInfo(newStreak);
       
@@ -87,13 +83,11 @@ export function useTimer() {
         NotificationService.showBadgeNotification(newBadge).catch(console.error);
         showBadgeAlert(newBadge);
       }
-
-      // Show day completion notification
       NotificationService.showDayCompletionNotification(newStreak).catch(console.error);
     }
   }, [currentTime, timerState]);
 
-  const showBadgeAlert = useCallback((badge: any) => {
+  const showBadgeAlert = useCallback((badge: Badge) => {
     Alert.alert(
       '🏆 Nova Conquista!',
       `Parabéns! Você desbloqueou a conquista "${badge.name}" da categoria ${badge.category}!`,
@@ -111,6 +105,42 @@ export function useTimer() {
     }));
   }, []);
 
+  const setupTimer = useCallback((days: number, startTime: number) => {
+    const now = Date.now();
+    const elapsed = now - startTime;
+    const daysDuration = 24 * 60 * 60 * 1000;
+    const totalDaysCompleted = Math.floor(elapsed / daysDuration);
+    
+    setTimerState({
+      isRunning: true,
+      startTime: startTime,
+      currentStreak: Math.max(days, totalDaysCompleted),
+      lastResetDate: null,
+      totalDaysCompleted: totalDaysCompleted,
+    });
+
+    const achievedBadge = BadgeService.getBadgeInfo(days);
+    if (achievedBadge && days > 0) {
+      setTimeout(() => {
+        Alert.alert(
+          '🎉 Progresso Importado!',
+          `Bem-vindo! Você desbloqueou a conquista "${achievedBadge.name}" e todas as anteriores!`,
+          [{ text: 'Fantástico!', style: 'default' }]
+        );
+      }, 500);
+    }
+    setShowManualSetup(false);
+  }, []);
+
+  const showSetupModal = useCallback(() => {
+    setShowManualSetup(true);
+  }, []);
+
+  const handleCloseModal = useCallback(() => {
+    setShowManualSetup(false);
+  }, []);
+
+ 
   const resetTimer = useCallback(() => {
     Alert.alert(
       'Resetar Progresso',
@@ -120,29 +150,38 @@ export function useTimer() {
         {
           text: 'Resetar',
           style: 'destructive',
-          onPress: () => {
-            setTimerState(prev => ({
-              ...prev,
-              isRunning: false,
-              startTime: null,
-              currentStreak: 0,
-              lastResetDate: new Date().toISOString(),
-              totalDaysCompleted: 0,
-            }));
+          onPress: async () => {
+            try {
+           
+              await StorageService.incrementTotalResets(timerState.currentStreak);
+    
+              setTimerState(prev => ({
+                ...prev,
+                isRunning: false,
+                startTime: null,
+                currentStreak: 0,
+                lastResetDate: new Date().toISOString(),
+                totalDaysCompleted: 0,
+              }));
+              
+              
+              Alert.alert("Sucesso", "Seu progresso foi resetado e registrado no histórico.");
+
+            } catch (error) {
+              console.error("Failed to reset timer and update count:", error);
+              Alert.alert("Erro", "Ocorreu um erro ao tentar resetar seu progresso.");
+            }
           },
         },
       ]
     );
-  }, []);
+  }, [timerState.currentStreak]);
 
   const getCurrentDayElapsed = useCallback(() => {
     if (!timerState.startTime || !timerState.isRunning) return 0;
-    
     const elapsed = currentTime - timerState.startTime;
     const daysDuration = 24 * 60 * 60 * 1000;
-    const currentDayElapsed = elapsed % daysDuration;
-    
-    return currentDayElapsed;
+    return elapsed % daysDuration;
   }, [currentTime, timerState.startTime, timerState.isRunning]);
 
   const getTotalElapsed = useCallback(() => {
@@ -152,14 +191,17 @@ export function useTimer() {
 
   const getCurrentDayProgress = useCallback(() => {
     if (!timerState.isRunning || !timerState.startTime) return 0;
-    const currentDayElapsed = getCurrentDayElapsed();
-    return Math.min(currentDayElapsed / (24 * 60 * 60 * 1000), 1);
+    return Math.min(getCurrentDayElapsed() / (24 * 60 * 60 * 1000), 1);
   }, [timerState.isRunning, timerState.startTime, getCurrentDayElapsed]);
 
   return {
     timerState,
     currentTime,
+    showManualSetup,
     startTimer,
+    setupTimer,
+    showSetupModal,
+    handleCloseModal, 
     resetTimer,
     getCurrentDayElapsed,
     getTotalElapsed,

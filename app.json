@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "nofap",
+    "name": "Fap Zerø",
     "slug": "nofap",
-    "version": "1.0.0",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "nofap",
@@ -14,10 +14,18 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#3d2050"
+        "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anjs_vf.nofap"
+      "package": "com.anjs_vf.nofap",
+      "permissions": [
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "WAKE_LOCK",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "usesCleartextTraffic": true
     },
     "web": {
       "bundler": "metro",
@@ -34,16 +42,18 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#3d2050"
+          "backgroundColor": "#000000"
         }
       ],
       [
         "expo-notifications",
         {
           "icon": "./assets/images/icon.png",
-          "color": "#3d2050"
+          "color": "#000000"
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true
@@ -51,7 +61,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "a19b07dd-4e79-4eb2-bc2f-c36b8b0a7fce"
+        "projectId": "3ae79a9a-cde0-4659-b1d6-43b247e32102"
       }
     }
   }

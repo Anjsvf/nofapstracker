@@ -3,14 +3,14 @@ import { Badge, BadgeProgress } from '@/types';
 
 export class BadgeService {
   static getBadgeInfo(currentStreak: number): Badge | null {
-    // Find the highest badge that the user has earned
+    
     const earnedBadges = BADGES.filter(badge => currentStreak >= badge.days);
     
     if (earnedBadges.length === 0) {
       return null;
     }
     
-    // Return the badge with the highest day requirement that's been met
+    
     return earnedBadges.reduce((highest, current) => 
       current.days > highest.days ? current : highest
     );
@@ -23,7 +23,7 @@ export class BadgeService {
       return null;
     }
     
-    // Return the badge with the lowest day requirement that hasn't been met yet
+    
     return nextBadges.reduce((lowest, current) => 
       current.days < lowest.days ? current : lowest
     );
@@ -45,7 +45,7 @@ export class BadgeService {
       const currentProgress = currentStreak - previousDays;
       progress = Math.min(currentProgress / totalDays, 1);
     } else {
-      progress = 1; // All badges unlocked
+      progress = 1; 
     }
     
     return {

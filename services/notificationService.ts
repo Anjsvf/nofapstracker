@@ -2,7 +2,7 @@ import { Badge } from '@/types';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-// Configure notifications for production builds
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
@@ -33,7 +33,7 @@ export class NotificationService {
     }
 
     try {
-      // Request permissions first
+    
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
         console.log('Notification permissions not granted');
@@ -46,7 +46,7 @@ export class NotificationService {
           body: `Parabéns! Você conquistou: ${badge.name}`,
           data: { badge },
         },
-        trigger: null, // Show immediately
+        trigger: null, 
       });
     } catch (error) {
       console.error('Error showing badge notification:', error);
@@ -59,7 +59,7 @@ export class NotificationService {
     }
 
     try {
-      // Request permissions first
+     
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
         console.log('Notification permissions not granted');
@@ -72,7 +72,7 @@ export class NotificationService {
           body: `Mais um dia conquistado! Sequência atual: ${streak} dias`,
           data: { streak },
         },
-        trigger: null, // Show immediately
+        trigger: null, 
       });
     } catch (error) {
       console.error('Error showing day completion notification:', error);
