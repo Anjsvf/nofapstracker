@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 62,
     borderWidth: 3,
-    borderColor: 'rgba(139, 92, 246, 0.7)',
+    borderColor: 'rgba(185, 180, 199, 0.7)',
     borderRightColor: 'transparent',
     borderBottomColor: 'transparent',
     transformOrigin: '100% 50%',
@@ -366,9 +366,9 @@ const styles = StyleSheet.create({
     transform: [{ translateX: -10 }, { translateY: -6 }],
   },
   progressText: {
-    fontSize: 9,
+    fontSize: 20,
     fontFamily: 'Inter-Bold',
-    color: 'rgba(139, 92, 246, 0.8)',
+    color: 'rgba(234, 231, 241, 0.8)',
   },
 
   // Status badges

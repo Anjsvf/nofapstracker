@@ -70,7 +70,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           <TextInput
             style={styles.messageInput}
             placeholder="Digite sua mensagem..."
-            placeholderTextColor="#3b82f6"
+            placeholderTextColor="#c0c5ce4c"
             value={inputText}
             onChangeText={setInputText}
             multiline={true}

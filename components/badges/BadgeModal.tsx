@@ -446,11 +446,11 @@ const styles = StyleSheet.create({
 
   // Progress Card
   progressCard: {
-    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    backgroundColor: 'rgba(28, 27, 30, 0.33)',
     borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.2)',
+    borderColor: 'rgba(228, 220, 242, 0.34)',
   },
   progressHeader: {
     flexDirection: 'row',
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 3,
     minWidth: 6,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#d5dcecff',
   },
   progressStats: {
     flexDirection: 'row',
