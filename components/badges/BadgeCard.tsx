@@ -1,5 +1,5 @@
 import { Badge } from '@/types';
-import { Award, Crown, Lock, Star, Zap } from 'lucide-react-native';
+import { Award, Crown, Lock, Star } from 'lucide-react-native';
 import React from 'react';
 import { Dimensions, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -30,14 +30,14 @@ export function BadgeCard({
   };
 
   const getConnectionLineColor = () => {
-    if (isUnlocked) return 'rgba(38, 50, 181, 0.6)';
+    if (isUnlocked) return 'rgba(45, 46, 53, 0.86)';
     if (getProgressPercentage() > 50) return 'rgba(255, 193, 7, 0.5)';
     return 'rgba(127, 140, 141, 0.1)';
   };
 
   const getBadgeGlow = () => {
     if (isCurrent) return 'rgba(255, 217, 0, 0.07)';
-    if (isUnlocked) return 'rgba(139, 92, 246, 0.3)';
+    if (isUnlocked) return 'rgba(0, 0, 0, 0.84)';
     return 'transparent';
   };
 
@@ -105,7 +105,7 @@ export function BadgeCard({
 
          
           <View style={styles.badgeDetails}>
-            <Zap size={12} color={isUnlocked ? "#FFD700" : "rgba(189, 195, 199, 0.6)"} />
+           
             <Text style={[
               styles.badgeDays,
               isUnlocked && styles.badgeDaysUnlocked,
@@ -212,22 +212,22 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(44, 47, 51, 0.9)',
+   
     borderWidth: 2,
-    borderColor: 'rgba(127, 140, 141, 0.3)',
+    
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    shadowColor: '#000',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
   badgeContentCurrent: {
-    borderColor: 'rgba(255, 215, 0, 0.8)',
+   
     borderWidth: 3,
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+   
   },
   badgeContentLocked: {
     opacity: 0.6,
@@ -246,7 +246,7 @@ const styles = StyleSheet.create({
     borderColor: '#ffffff',
   },
   badgeImageCurrent: {
-    borderColor: 'rgba(255, 215, 0, 0.8)',
+   
     borderWidth: 2.5,
   },
   badgeImageLocked: {
@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 30,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+   
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#000',
+    borderColor: '#00000016',
   },
   awardIndicator: {
     position: 'absolute',
@@ -346,7 +346,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 62,
     borderWidth: 3,
-    borderColor: 'rgba(127, 140, 141, 0.2)',
+    
   },
   progressRingFill: {
     position: 'absolute',
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 62,
     borderWidth: 3,
-    borderColor: 'rgba(185, 180, 199, 0.7)',
+   
     borderRightColor: 'transparent',
     borderBottomColor: 'transparent',
     transformOrigin: '100% 50%',
@@ -366,7 +366,8 @@ const styles = StyleSheet.create({
     transform: [{ translateX: -10 }, { translateY: -6 }],
   },
   progressText: {
-    fontSize: 20,
+    fontSize: 12,
+    marginTop: 5,
     fontFamily: 'Inter-Bold',
     color: 'rgba(234, 231, 241, 0.8)',
   },

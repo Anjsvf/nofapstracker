@@ -1,33 +1,75 @@
 import { ResetHistoryEntry } from '@/types';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Calendar, Clock, Trophy, X } from 'lucide-react-native';
+import { Activity, BarChart3, Calendar, Clock, X } from 'lucide-react-native';
 import React from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getShift } from './getShift/getShift';
+import { HourlyDensityChart } from './HourlyDensityChart';
+import { MonthlyMetrics } from './MonthlyMetrics';
+import { ResetTimeline } from './ResetTimeline';
 
 interface HistoryDetailsModalProps {
   visible: boolean;
   date: Date | null;
   resets: ResetHistoryEntry[];
+  allResets: ResetHistoryEntry[];
   onClose: () => void;
 }
 
-export function HistoryDetailsModal({ visible, date, resets, onClose }: HistoryDetailsModalProps) {
+export function HistoryDetailsModal({ 
+  visible, 
+  date, 
+  resets, 
+  allResets, 
+  onClose 
+}: HistoryDetailsModalProps) {
   const insets = useSafeAreaInsets();
 
-  const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
+  if (!visible || !date) return null;
+
+  const shiftGroups = resets.reduce((acc, reset) => {
+    const hour = new Date(reset.date).getHours();
+    const shift = getShift(hour);
+    const key = shift.name;
+    if (!acc[key]) acc[key] = { ...shift, count: 0, resets: [] };
+    acc[key].count++;
+    acc[key].resets.push(reset);
+    return acc;
+  }, {} as Record<string, { name: string; emoji: string; color: string; count: number; resets: ResetHistoryEntry[] }>);
+
+  const shiftEntries = Object.values(shiftGroups);
+
+  const getTotalDaysLost = () =>
+    resets.reduce((total, reset) => total + (reset.daysCompleted || 0), 0);
+
+  const getAverageInterval = () => {
+    if (resets.length <= 1) return 'N/A';
+    const sorted = [...resets].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    let totalMinutes = 0;
+    for (let i = 1; i < sorted.length; i++) {
+      const diffMs = new Date(sorted[i].date).getTime() - new Date(sorted[i - 1].date).getTime();
+      totalMinutes += diffMs / (1000 * 60);
+    }
+    const avgMinutes = Math.round(totalMinutes / (sorted.length - 1));
+    if (avgMinutes < 60) return `${avgMinutes} min`;
+    if (avgMinutes < 1440) return `${Math.round(avgMinutes / 60)}h ${avgMinutes % 60}min`;
+    return `${Math.round(avgMinutes / 1440)} dias`;
   };
 
-  const getTotalDaysLost = () => {
-    return resets.reduce((total, reset) => total + (reset.daysCompleted || 0), 0);
-  };
-
-  if (!visible) return null;
+  // Turno mais frequente
+  const mostFrequentShift = shiftEntries.length > 0
+    ? shiftEntries.reduce((max, shift) => (shift.count > max.count ? shift : max), shiftEntries[0]).name
+    : 'N/A';
 
   return (
     <Modal
@@ -37,14 +79,14 @@ export function HistoryDetailsModal({ visible, date, resets, onClose }: HistoryD
       onRequestClose={onClose}
     >
       <LinearGradient
-        colors={["#000000", "#000000", "#000000"]}
+        colors={['#000', '#000', '#000']}
         style={[styles.container, { paddingTop: insets.top + 20 }]}
       >
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <Clock size={24} color="#ffffff" />
+            <Activity size={24} color="#ffffff" />
             <Text style={styles.title}>
-              Resets do Dia {date?.toLocaleDateString('pt-BR')}
+              Análise Detalhada - {date.toLocaleDateString('pt-BR')}
             </Text>
           </View>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -54,118 +96,178 @@ export function HistoryDetailsModal({ visible, date, resets, onClose }: HistoryD
 
         <ScrollView
           style={styles.content}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.detailsContainer}>
-            <Text style={styles.detailsTitle}>
-              📅 {resets.length} reset{resets.length !== 1 ? 's' : ''} registrado{resets.length !== 1 ? 's' : ''}
-            </Text>
-            
-            {resets.map((reset, index) => (
-              <View key={reset.id} style={styles.resetDetailItem}>
-                <View style={styles.resetDetailHeader}>
-                  <Text style={styles.resetDetailNumber}>Reset #{index + 1}</Text>
-                 
-                </View>
-                
-                <View style={styles.resetDetailInfo}>
-                  <Text style={styles.resetDetailDate}>
-                    {new Date(reset.date).toLocaleDateString('pt-BR', {
-                      weekday: 'long',
-                      day: '2-digit',
-                      month: 'long',
-                      year: 'numeric'
-                    })}
-                  </Text>
-                  <Text style={styles.resetDetailFullTime}>
-                    Às {formatTime(reset.date)}
-                  </Text>
-                  
-                 
-                  <View style={styles.progressInfo}>
-                    <View style={styles.progressItem}>
-                      <Calendar size={16} color="#ffffff" />
-                      <Text style={styles.progressText}>
-                        {reset.daysCompleted || 0} dia{(reset.daysCompleted || 0) !== 1 ? 's' : ''} completados
+          {/* Métricas Mensais */}
+          <MonthlyMetrics date={date} allResets={allResets} />
+
+          {/* Estatísticas do Dia */}
+          {resets.length > 1 && (
+            <View style={styles.statsRow}>
+              <StatCard
+                title="Intervalo Médio"
+                value={getAverageInterval()}
+                icon={<Clock color="#3b82f6" size={20} />}
+                color="#3b82f6"
+              />
+            </View>
+          )}
+
+          {/* Distribuição por Turno */}
+          {resets.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Distribuição por Turno</Text>
+              <View style={styles.chartContainer}>
+                {shiftEntries.map((shift, index) => (
+                  <View key={index} style={styles.shiftBarContainer}>
+                    <View style={styles.shiftHeader}>
+                      <Text style={[styles.shiftLabel, { color: shift.color }]}>
+                        {shift.emoji} {shift.name}
                       </Text>
+                      <Text style={styles.shiftValue}>{shift.count}</Text>
                     </View>
-                    
-                   
-                    {reset.badgeName ? (
-                      <View style={styles.progressItem}>
-                        <Trophy size={16} color="#fbbf24" />
-                        <Text style={styles.badgeText}>
-                          {reset.badgeEmoji} {reset.badgeName}
-                        </Text>
-                        {reset.badgeCategory && (
-                          <Text style={styles.badgeCategoryText}>
-                            • {reset.badgeCategory}
-                          </Text>
-                        )}
-                      </View>
-                    ) : (
-                      <View style={styles.progressItem}>
-                        <Trophy size={16} color="#6b7280" />
-                        <Text style={styles.noBadgeText}>
-                          Nenhuma conquista alcançada
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-                
-                {index < resets.length - 1 && (
-                  <View style={styles.resetDetailSeparator} />
-                )}
-              </View>
-            ))}
-            
-            <View style={styles.summaryContainer}>
-              <Text style={styles.summaryTitle}>Resumo do Dia</Text>
-              <Text style={styles.summaryText}>Total de resets: {resets.length}</Text>
-              <Text style={styles.summaryText}>
-                Total de dias perdidos: {getTotalDaysLost()}
-              </Text>
-              {resets.length > 1 && (
-                <Text style={styles.summaryText}>
-                  Intervalo: {formatTime(resets[0].date)} - {formatTime(resets[resets.length - 1].date)}
-                </Text>
-              )}
-              
-              
-              <View style={styles.badgesSummary}>
-                <Text style={styles.badgesSummaryTitle}>🏆 Conquistas Perdidas:</Text>
-                {resets
-                  .filter(reset => reset.badgeName)
-                  .map((reset, index) => (
-                    <Text key={index} style={styles.badgesSummaryItem}>
-                      {reset.badgeEmoji} {reset.badgeName} ({reset.daysCompleted} dias)
+                    <View style={styles.barBg}>
+                      <View
+                        style={[
+                          styles.barFill,
+                          {
+                            width: `${(shift.count / Math.max(...shiftEntries.map(s => s.count), 1)) * 100}%`,
+                            backgroundColor: shift.color,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.shiftPercentage}>
+                      {((shift.count / resets.length) * 100).toFixed(1)}% do total
                     </Text>
-                  ))
-                }
-                {resets.filter(reset => reset.badgeName).length === 0 && (
-                  <Text style={styles.noBadgesLost}>Nenhuma conquista foi perdida</Text>
-                )}
+                  </View>
+                ))}
               </View>
             </View>
-          </View>
+          )}
+
+       
+          {resets.length > 0 && <HourlyDensityChart resets={resets} />}
+
+        
+          <ResetTimeline resets={resets} />
+
+      
+          {resets.length > 0 && (
+            <View style={styles.summaryContainer}>
+              <Text style={styles.summaryTitle}>Análise Consolidada do Dia</Text>
+              <View style={styles.summaryGrid}>
+                <SummaryMetric 
+                  label="Total de Ocorrências" 
+                  value={resets.length.toString()} 
+                  color="#ef4444"
+                  icon={<BarChart3 size={16} color="#ef4444" />}
+                />
+                <SummaryMetric 
+                  label="Dias Perdidos" 
+                  value={getTotalDaysLost().toString()} 
+                  color="#f59e0b"
+                  icon={<Calendar size={16} color="#f59e0b" />}
+                />
+                {resets.length > 1 && (
+                  <SummaryMetric 
+                    label="Intervalo Médio" 
+                    value={getAverageInterval()} 
+                    color="#3b82f6"
+                    icon={<Clock size={16} color="#3b82f6" />}
+                  />
+                )}
+                <SummaryMetric 
+                  label="Turno Predominante" 
+                  value={mostFrequentShift} 
+                  color="#8b5cf6"
+                  icon={<Activity size={16} color="#8b5cf6" />}
+                />
+              </View>
+              
+              {resets.filter((r) => r.badgeName).length > 0 && (
+                <View style={styles.achievementsLost}>
+                  <Text style={styles.achievementsTitle}>Conquistas Perdidas</Text>
+                  <View style={styles.achievementsList}>
+                    {resets
+                      .filter((reset) => reset.badgeName)
+                      .map((reset, index) => (
+                        <View key={index} style={styles.achievementItem}>
+                          <Text style={styles.achievementEmoji}>{reset.badgeEmoji}</Text>
+                          <View style={styles.achievementInfo}>
+                            <Text style={styles.achievementName}>{reset.badgeName}</Text>
+                            <Text style={styles.achievementDays}>
+                              {reset.daysCompleted} dia{reset.daysCompleted !== 1 ? 's' : ''} de progresso
+                            </Text>
+                          </View>
+                        </View>
+                      ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
         </ScrollView>
       </LinearGradient>
     </Modal>
   );
 }
 
+
+const StatCard = ({
+  title,
+  value,
+  icon,
+  color,
+}: {
+  title: string;
+  value: string;
+  icon: React.ReactNode;
+  color: string;
+}) => (
+  <View style={[styles.statCard, { borderColor: color + '40' }]}>
+    <View style={[styles.statIconBg, { backgroundColor: color + '20' }]}>
+      {icon}
+    </View>
+    <Text style={styles.statValue} numberOfLines={1}>
+      {value}
+    </Text>
+    <Text style={styles.statLabel}>{title}</Text>
+  </View>
+);
+
+const SummaryMetric = ({ 
+  label, 
+  value, 
+  color, 
+  icon
+}: { 
+  label: string; 
+  value: string; 
+  color: string;
+  icon: React.ReactNode;
+}) => (
+  <View style={styles.summaryMetricCard}>
+    <View style={styles.summaryMetricHeader}>
+      <View style={styles.summaryMetricIcon}>{icon}</View>
+      <Text style={[styles.summaryMetricValue, { color }]}>{value}</Text>
+    </View>
+    <Text style={styles.summaryMetricLabel}>{label}</Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#0f172a',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -181,143 +283,204 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
   },
   content: {
     flex: 1,
     paddingHorizontal: 20,
   },
-  detailsContainer: {
-    backgroundColor: '#171a18ff',
-    borderRadius: 20,
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 24,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#000',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  statIconBg: {
+    padding: 8,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  statValue: {
+    fontSize: 20,
+    fontFamily: 'Inter-Bold',
+    color: '#ffffff',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
+  section: {
+    marginBottom: 24,
+    backgroundColor: '#000',
+    borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.32)',
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  detailsTitle: {
+  sectionTitle: {
     fontSize: 18,
     fontFamily: 'Inter-Bold',
     color: '#ffffff',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  resetDetailItem: {
     marginBottom: 16,
   },
-  resetDetailHeader: {
+  chartContainer: {
+    gap: 16,
+  },
+  shiftBarContainer: {
+    gap: 8,
+  },
+  shiftHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
   },
-  resetDetailNumber: {
-    fontSize: 16,
+  shiftLabel: {
+    fontSize: 14,
     fontFamily: 'Inter-SemiBold',
-    color: '#ef4444',
   },
-  resetDetailTime: {
-    fontSize: 18,
-    fontFamily: 'RobotoMono-Bold',
-    color: '#ef4444',
-  },
-  resetDetailInfo: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.54)',
-  },
-  resetDetailDate: {
+  shiftValue: {
     fontSize: 14,
-    fontFamily: 'Inter-Medium',
     color: '#ffffff',
-    marginBottom: 4,
+    fontFamily: 'Inter-Bold',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    minWidth: 30,
+    textAlign: 'center',
   },
-  resetDetailFullTime: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#fff',
-    marginBottom: 12,
-  },
-  progressInfo: {
-    marginTop: 8,
-    gap: 8,
-  },
-  progressItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  progressText: {
-    fontSize: 13,
-    fontFamily: 'Inter-Medium',
-    color: '#fff',
-  },
-  badgeText: {
-    fontSize: 13,
-    fontFamily: 'Inter-Medium',
-    color: '#fbbf24',
-  },
-  badgeCategoryText: {
+  shiftPercentage: {
     fontSize: 11,
+    color: '#64748b',
     fontFamily: 'Inter-Regular',
-    color: '#d1d5db',
-    marginLeft: 4,
   },
-  noBadgeText: {
-    fontSize: 13,
-    fontFamily: 'Inter-Medium',
-    color: '#6b7280',
-    fontStyle: 'italic',
+  barBg: {
+    height: 12,
+    backgroundColor: '#334155',
+    borderRadius: 6,
+    overflow: 'hidden',
   },
-  resetDetailSeparator: {
-    height: 1,
-    backgroundColor: 'rgba(62, 35, 35, 0.27)',
-    marginTop: 16,
+  barFill: {
+    height: '100%',
+    borderRadius: 6,
   },
   summaryContainer: {
-    marginTop: 20,
-    backgroundColor: '#0c131f4b',
+    backgroundColor: '#000',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  summaryTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#ffffff',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 20,
+  },
+  summaryMetricCard: {
+    flex: 1,
+    minWidth: 140,
+    backgroundColor: '#00000051',
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#35445bff',
+    borderColor: '#3341554f',
+    alignItems: 'center',
   },
-  summaryTitle: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#fff',
+  summaryMetricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 8,
   },
-  summaryText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#ffffff',
-    marginBottom: 4,
+  summaryMetricIcon: {
+    marginRight: 4,
   },
-  badgesSummary: {
-    marginTop: 12,
-    paddingTop: 12,
+  summaryMetricValue: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+  },
+  summaryMetricLabel: {
+    fontSize: 11,
+    fontFamily: 'Inter-Medium',
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
+  achievementsLost: {
+    marginTop: 16,
+    paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#3b83f628',
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
-  badgesSummaryTitle: {
+  achievementsTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#facc15',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  achievementsList: {
+    gap: 12,
+  },
+  achievementItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(250, 204, 21, 0.05)',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(250, 204, 21, 0.2)',
+  },
+  achievementEmoji: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  achievementInfo: {
+    flex: 1,
+  },
+  achievementName: {
     fontSize: 14,
     fontFamily: 'Inter-SemiBold',
-    color: '#fbbf24',
-    marginBottom: 8,
+    color: '#facc15',
+    marginBottom: 2,
   },
-  badgesSummaryItem: {
-    fontSize: 13,
-    fontFamily: 'Inter-Medium',
-    color: '#ffffff',
-    marginBottom: 4,
-    marginLeft: 8,
-  },
-  noBadgesLost: {
-    fontSize: 13,
-    fontFamily: 'Inter-Medium',
-    color: '#6b7280',
-    fontStyle: 'italic',
-    marginLeft: 8,
+  achievementDays: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#94a3b8',
   },
 });

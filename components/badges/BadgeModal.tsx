@@ -1,16 +1,16 @@
 import { Badge } from '@/types';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Award, Calendar, Crown, Lock, Star, Target, Trophy, Zap } from 'lucide-react-native';
+import { Award, Calendar, Crown, Lock, Trophy } from 'lucide-react-native';
 import React from 'react';
 import {
+  Animated,
   Dimensions,
   Image,
   Modal,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
@@ -30,6 +30,83 @@ export function BadgeModal({
   currentBadge, 
   onClose 
 }: BadgeModalProps) {
+  const slideAnim = React.useRef(new Animated.Value(height)).current;
+  const opacityAnim = React.useRef(new Animated.Value(0)).current;
+  const translateY = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (visible) {
+      // Reset translateY para 0 ao abrir
+      translateY.setValue(0);
+      // Anima entrada
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      // Anima saída - agora usando translateY para o gesto
+      handleClose();
+    }
+  }, [visible]);
+
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        // Pode adicionar feedback tátil aqui se quiser
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          // Permite apenas deslizar para baixo
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > height * 0.2 || gestureState.vy > 0.5) {
+          // Threshold: 20% da altura da tela ou velocidade para baixo
+          handleClose();
+        } else {
+          // Volta para posição original com spring para sensação natural
+          Animated.spring(translateY, {
+            toValue: 0,
+            tension: 300,
+            friction: 30,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: height,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Reset slideAnim para próxima abertura
+      slideAnim.setValue(height);
+      translateY.setValue(0);
+      onClose();
+    });
+  };
+
   if (!badge) return null;
 
   const isUnlocked = currentStreak >= badge.days;
@@ -37,200 +114,181 @@ export function BadgeModal({
   const daysRemaining = badge.days - currentStreak;
   const progressPercentage = badge.days === 0 ? 100 : Math.min((currentStreak / badge.days) * 100, 100);
 
-  const getModalGradient = () => {
-    if (isCurrent) {
-      return ['#171a1897', '#171a1897', '#171a1897'] as const;
-    }
-    if (isUnlocked) {
-      return ['#171a1897', '#171a1897', '#171a1897'] as const;
-    }
-    return ['#171a1897', '#171a1897', '#171a1897'] as const;
-  };
-
-  const getHeaderGradient = () => {
-    if (isCurrent) {
-      return ['#171a1897', '#171a1897', '#171a1897'] as const;
-    }
-    if (isUnlocked) {
-      return ['#171a1897', '#171a1897', '#171a1897'] as const;
-    }
-    return ['#171a1897', '#171a1897', '#171a1897'] as const;
-  };
+  const totalTranslateY = Animated.add(slideAnim, translateY);
 
   return (
     <Modal
-      animationType="fade"
+      animationType="none"
       transparent={true}
       visible={visible}
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
-        <Pressable style={styles.modalWrapper} onPress={(e) => e.stopPropagation()}>
-          <LinearGradient
-            colors={getModalGradient()}
-            style={styles.modalContent}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-           
-            <LinearGradient
-              colors={getHeaderGradient()}
-              style={styles.modalHeader}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+      <Pressable style={styles.modalOverlay} onPress={handleClose}>
+        <Animated.View 
+          style={[
+            styles.overlayBackground,
+            { opacity: opacityAnim }
+          ]} 
+        />
+        
+        <Animated.View
+          style={[
+            styles.modalWrapper,
+            {
+              transform: [{ translateY: totalTranslateY }]
+            }
+          ]}
+        >
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View 
+              style={styles.modalContent}
+              {...panResponder.panHandlers}
             >
-              <View style={styles.headerContent}>
-                <View style={styles.categoryContainer}>
-                  <Trophy size={16} color={isCurrent ? "#ffffff" : "rgba(255, 255, 255, 0.8)"} />
+              {/* Handle bar - indica que pode arrastar */}
+              <View style={styles.handleBar} />
+
+              {/* Header sem botão de fechar */}
+              <View style={styles.modalHeader}>
+                <View style={styles.headerContent}>
+                  <View style={styles.categoryContainer}>
+                    <Trophy size={16} color={isCurrent ? "#ffffff" : "rgba(255, 255, 255, 0.8)"} />
+                    <Text style={[
+                      styles.modalHeaderCategory,
+                      isCurrent && styles.modalHeaderCategoryCurrent
+                    ]}>
+                      {badge.category.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+                
+                {isCurrent && (
+                  <View style={styles.currentBanner}>
+                    <Text style={styles.currentBannerText}>CONQUISTA ATUAL</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Badge Image Section */}
+              <View style={styles.modalImageSection}>
+                <View style={[
+                  styles.modalImageContainer,
+                  isCurrent && styles.modalImageContainerCurrent
+                ]}>
+                  <Image 
+                    source={badge.imageSource}
+                    style={[
+                      styles.modalBadgeImage,
+                      !isUnlocked && styles.modalBadgeImageLocked,
+                      isCurrent && styles.modalBadgeImageCurrent
+                    ]}
+                    resizeMode="cover"
+                  />
+                  
+                  {!isUnlocked && (
+                    <View style={styles.modalLockOverlay}>
+                      <Lock size={32} color="#ffffff" />
+                    </View>
+                  )}
+                  
+                  {isCurrent && (
+                    <View style={styles.modalCurrentIndicator} />
+                  )}
+                  
+                  {isUnlocked && !isCurrent && (
+                    <View style={styles.modalUnlockedIndicator}>
+                      <Award size={16} color="#fff" />
+                    </View>
+                  )}
+                </View>
+              </View>
+
+              {/* Title Section */}
+              <View style={styles.titleSection}>
+                <Text style={[
+                  styles.modalBadgeTitle,
+                  isCurrent && styles.modalBadgeTitleCurrent
+                ]}>
+                  {badge.name}
+                </Text>
+                
+                <View style={styles.daysInfoContainer}>
+                  <Calendar size={16} color={isUnlocked ? "rgba(16, 185, 129, 0.8)" : "#ffffff"} />
                   <Text style={[
-                    styles.modalHeaderCategory,
-                    isCurrent && styles.modalHeaderCategoryCurrent
+                    styles.modalBadgeDays,
+                    isUnlocked && styles.modalBadgeDaysUnlocked
                   ]}>
-                    {badge.category.toUpperCase()}
+                    {badge.days === 0 ? 'INÍCIO DA JORNADA' : `${badge.days} DIAS NECESSÁRIOS`}
                   </Text>
                 </View>
               </View>
-              
-              {isCurrent && (
-                <View style={styles.currentBanner}>
-                  <Crown size={14} color="#000" />
-                  <Text style={styles.currentBannerText}>CONQUISTA ATUAL</Text>
-                  <Crown size={14} color="#000" />
-                </View>
-              )}
-            </LinearGradient>
 
-           
-            <View style={styles.modalImageSection}>
-              <View style={[
-                styles.modalImageContainer,
-                isCurrent && styles.modalImageContainerCurrent
-              ]}>
-                <Image 
-                  source={badge.imageSource}
-                  style={[
-                    styles.modalBadgeImage,
-                    !isUnlocked && styles.modalBadgeImageLocked,
-                    isCurrent && styles.modalBadgeImageCurrent
-                  ]}
-                  resizeMode="cover"
-                />
-                
-                {!isUnlocked && (
-                  <View style={styles.modalLockOverlay}>
-                    <Lock size={32} color="#ffffff" />
-                  </View>
-                )}
-                
-                {isCurrent && (
-                  <View style={styles.modalCurrentIndicator}>
-                    <Star size={18} color="#000" />
-                  </View>
-                )}
-                
-                {isUnlocked && !isCurrent && (
-                  <View style={styles.modalUnlockedIndicator}>
-                    <Award size={16} color="#fff" />
-                  </View>
-                )}
-              </View>
-            </View>
-
-           
-            <View style={styles.titleSection}>
-              <Text style={[
-                styles.modalBadgeTitle,
-                isCurrent && styles.modalBadgeTitleCurrent
-              ]}>
-                {badge.name}
-              </Text>
-              
-              <View style={styles.daysInfoContainer}>
-                <Calendar size={16} color={isUnlocked ? "rgba(16, 185, 129, 0.8)" : "#ffffff"} />
-                <Text style={[
-                  styles.modalBadgeDays,
-                  isUnlocked && styles.modalBadgeDaysUnlocked
-                ]}>
-                  {badge.days === 0 ? 'INÍCIO DA JORNADA' : `${badge.days} DIAS NECESSÁRIOS`}
-                </Text>
-              </View>
-            </View>
-
-           
-            <View style={styles.statusSection}>
-              {isUnlocked ? (
-                <View style={[
-                  styles.statusCard,
-                  isCurrent ? styles.statusCardCurrent : styles.statusCardUnlocked
-                ]}>
-                  <View style={styles.statusContent}>
-                    <View style={styles.statusIcon}>
-                      {isCurrent ? <Crown size={20} color="#ffffff" /> : <Trophy size={20} color="#fff" />}
+              {/* Status Section */}
+              <View style={styles.statusSection}>
+                {isUnlocked ? (
+                  <View style={[
+                    styles.statusCard,
+                    isCurrent ? styles.statusCardCurrent : styles.statusCardUnlocked
+                  ]}>
+                    <View style={styles.statusContent}>
+                      <View style={styles.statusIcon}>
+                        {isCurrent ? <Crown size={20} color="#ffffff" /> : <Trophy size={20} color="#fff" />}
+                      </View>
+                      <Text style={[
+                        styles.statusTitle,
+                        isCurrent && styles.statusTitleCurrent
+                      ]}>
+                        {isCurrent ? 'CONQUISTA ATUAL' : 'CONQUISTADO'}
+                      </Text>
+                      <Text style={[
+                        styles.statusSubtitle,
+                        isCurrent && styles.statusSubtitleCurrent
+                      ]}>
+                        {isCurrent 
+                          ? 'Você está usando este badge' 
+                          : 'Parabéns pela conquista!'
+                        }
+                      </Text>
                     </View>
-                    <Text style={[
-                      styles.statusTitle,
-                      isCurrent && styles.statusTitleCurrent
-                    ]}>
-                      {isCurrent ? 'CONQUISTA ATUAL' : 'CONQUISTADO'}
-                    </Text>
-                    <Text style={[
-                      styles.statusSubtitle,
-                      isCurrent && styles.statusSubtitleCurrent
-                    ]}>
-                      {isCurrent 
-                        ? 'Você está usando este badge' 
-                        : 'Parabéns pela conquista!'
-                      }
-                    </Text>
                   </View>
-                </View>
-              ) : (
-                <View style={styles.progressCard}>
-                  <View style={styles.progressHeader}>
-                    <Target size={18} color="#ffffff" />
-                    <Text style={styles.progressTitle}>PROGRESSO</Text>
-                  </View>
-                  
-                  <View style={styles.progressBarSection}>
-                    <View style={styles.progressBarContainer}>
-                      <View style={styles.progressBarBg} />
-                      <View style={[
-                        styles.progressBarFill, 
-                        { width: `${progressPercentage}%` }
-                      ]} />
+                ) : (
+                  <View style={styles.progressCard}>
+                    <View style={styles.progressHeader}>
+                      <Text style={styles.progressTitle}>PROGRESSO</Text>
                     </View>
                     
-                    <View style={styles.progressStats}>
-                      <Text style={styles.progressText}>
-                        {currentStreak}/{badge.days} dias
-                      </Text>
-                      <Text style={styles.progressPercentage}>
-                        {Math.round(progressPercentage)}%
+                    <View style={styles.progressBarSection}>
+                      <View style={styles.progressBarContainer}>
+                        <View style={styles.progressBarBg} />
+                        <View style={[
+                          styles.progressBarFill, 
+                          { width: `${progressPercentage}%` }
+                        ]} />
+                      </View>
+                      
+                      <View style={styles.progressStats}>
+                        <Text style={styles.progressText}>
+                          {currentStreak}/{badge.days} dias
+                        </Text>
+                        <Text style={styles.progressPercentage}>
+                          {Math.round(progressPercentage)}%
+                        </Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.remainingInfo}>
+                      <Text style={styles.remainingText}>
+                        {daysRemaining === 1 
+                          ? 'FALTA APENAS 1 DIA!' 
+                          : `Faltam ${daysRemaining} dias`
+                        }
                       </Text>
                     </View>
                   </View>
-                  
-                  <View style={styles.remainingInfo}>
-                    <Zap size={14} color="rgba(245, 158, 11, 0.8)" />
-                    <Text style={styles.remainingText}>
-                      {daysRemaining === 1 
-                        ? 'FALTA APENAS 1 DIA!' 
-                        : `Faltam ${daysRemaining} dias`
-                      }
-                    </Text>
-                  </View>
-                </View>
-              )}
+                )}
+              </View>
             </View>
-
-           
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>
-                FECHAR
-              </Text>
-            </TouchableOpacity>
-          </LinearGradient>
-        </Pressable>
+          </Pressable>
+        </Animated.View>
       </Pressable>
     </Modal>
   );
@@ -239,36 +297,49 @@ export function BadgeModal({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    justifyContent: 'flex-end',
+  },
+  overlayBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 1)',
   },
   modalWrapper: {
     width: '100%',
-    maxWidth: 400,
   },
   modalContent: {
-    borderRadius: 24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.2)',
-    backgroundColor: 'rgba(26, 27, 33, 0.95)',
+    backgroundColor: '#000',
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   
-  // Header
+  // Handle bar - agora serve como indicador de arrastar
+  handleBar: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+
+  // Header - ajustado sem o botão de fechar
   modalHeader: {
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 16,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    // Removido space-between, agora só o conteúdo à esquerda
     alignItems: 'center',
-    marginBottom: 8,
   },
   categoryContainer: {
     flexDirection: 'row',
@@ -343,17 +414,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   modalCurrentIndicator: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    backgroundColor: 'rgba(255, 215, 0, 0.9)',
-    borderRadius: 14,
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#000',
+    borderColor: '#0000001a',
   },
   modalUnlockedIndicator: {
     position: 'absolute',
@@ -402,7 +463,6 @@ const styles = StyleSheet.create({
   // Status Section
   statusSection: {
     paddingHorizontal: 20,
-    marginBottom: 24,
   },
   statusCard: {
     borderRadius: 16,
@@ -411,12 +471,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   statusCardCurrent: {
-    backgroundColor: '#1e293b4f',
-    borderColor: '#ffffff',
+    backgroundColor: '#000',
+    borderColor: '#000000ff',
   },
   statusCardUnlocked: {
-    backgroundColor: '#1e293b53',
-    borderColor: '#ffffff',
+    backgroundColor: '#000',
+    borderColor: '#0e0404ff',
   },
   statusContent: {
     alignItems: 'center',
@@ -446,11 +506,11 @@ const styles = StyleSheet.create({
 
   // Progress Card
   progressCard: {
-    backgroundColor: 'rgba(28, 27, 30, 0.33)',
+    backgroundColor: 'rgba(0, 0, 0, 0.96)',
     borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: 'rgba(228, 220, 242, 0.34)',
+    borderColor: 'rgba(0, 0, 0, 1)',
   },
   progressHeader: {
     flexDirection: 'row',
@@ -470,7 +530,7 @@ const styles = StyleSheet.create({
   },
   progressBarContainer: {
     height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#000',
     borderRadius: 3,
     overflow: 'hidden',
     marginBottom: 8,
@@ -512,23 +572,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: 'rgba(245, 158, 11, 0.8)',
     textAlign: 'center',
-  },
-
-  // Close Button
-  closeButton: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    paddingVertical: 14,
-    alignItems: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#0f172a',
-  },
-  closeButtonText: {
-    fontSize: 15,
-    fontFamily: 'Inter-SemiBold',
-    color: 'rgba(255, 255, 255, 0.9)',
-    letterSpacing: 0.3,
   },
 });

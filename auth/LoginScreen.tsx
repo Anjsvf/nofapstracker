@@ -153,7 +153,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             disabled={isLoading}
             activeOpacity={0.7}
           >
-            <Text style={styles.forgotPasswordText}>Esqueceu a senha?</Text>
+            {/* <Text style={styles.forgotPasswordText}>Esqueceu a senha?</Text> */}
           </TouchableOpacity>
         )}
 
@@ -212,14 +212,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           {isRegistering ? (
             <>
               • Nome de usuário: 3-20 caracteres únicos{'\n'}
-              • E-mail válido necessário{'\n'}
+              • E-mail necessário{'\n'}
               • Senha com mínimo de 6 caracteres{'\n'}
               • Aceite os Termos de Uso para continuar
             </>
           ) : (
             <>
               • Use seu e-mail e senha para entrar{'\n'}
-              • Verifique seu e-mail após o cadastro
+              • Não é Possível Recuperar Senha Por Enquanto{'\n'}
             </>
           )}
         </Text>

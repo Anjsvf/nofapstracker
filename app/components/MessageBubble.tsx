@@ -1,3 +1,4 @@
+import { BadgeIcon } from '@/components/chat/BadgeIcon'; // ✅ Badge do usuário
 import { EmojiSelector } from '@/components/emojiSelector/EmojiSelector';
 import * as Clipboard from 'expo-clipboard';
 import React, { useEffect, useRef, useState } from 'react';
@@ -33,6 +34,7 @@ interface MessageBubbleProps {
   isSelected?: boolean;
   onSelectionChange?: (messageId: string) => void;
   onClearSelection?: () => void;
+  userBadge?: string | null; // ✅ Chave da badge (ex: "streak_7")
 }
 
 const { width: windowWidth } = Dimensions.get('window');
@@ -54,6 +56,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   isSelected = false,
   onSelectionChange,
   onClearSelection,
+  userBadge,
 }) => {
   const [highlightAnim] = useState(new Animated.Value(0));
   const [swipeX] = useState(new Animated.Value(0));
@@ -63,7 +66,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [showVisibleReactionDetails, setShowVisibleReactionDetails] = useState(false);
   const [selectedEmoji, setSelectedEmoji] = useState<[string, string[]] | null>(null);
   const [hiddenReactions, setHiddenReactions] = useState<[string, string[]][]>([]);
-
   const tapCountRef = useRef(0);
   const tapTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -196,7 +198,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
-  
   const handleEmojiSelect = (emoji: string) => {
     onAddReaction?.(message._id, emoji);
     if (onClearSelection) {
@@ -204,7 +205,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
-  
   const handleMoreEmojisPress = () => {
     setShowEmojiPicker(true);
   };
@@ -231,10 +231,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   const renderReactions = React.useMemo(() => {
     if (!message.reactions || Object.keys(message.reactions).length === 0) return null;
-
     const reactionEntries = Object.entries(message.reactions).sort((a, b) => b[1].length - a[1].length);
     const visibleReactions = reactionEntries.slice(0, MAX_VISIBLE_REACTIONS);
-
     return (
       <View style={[
         styles.reactionsContainer,
@@ -282,7 +280,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <Text style={styles.replyIconText}>↩️</Text>
         </View>
       )}
-
       <Animated.View
         style={[styles.animatedContainer, { transform: [{ translateX: swipeX }] }]}
         {...panResponder.panHandlers}
@@ -310,7 +307,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 </TouchableOpacity>
               )}
 
-              {!message.isOwn && <Text style={styles.messageUsername}>{message.username}</Text>}
+              {/* ✅ Exibir username + badge apenas para mensagens de outros usuários */}
+              {!message.isOwn && (
+                <View style={styles.usernameContainer}>
+                  {userBadge && (
+                    <BadgeIcon 
+                      badgeKey={userBadge} 
+                      size="large"
+                    />
+                  )}
+                  <Text style={styles.messageUsername}>{message.username}</Text>
+                </View>
+              )}
 
               {message.type === 'text' ? (
                 <View style={styles.messageTextContainer}>{renderTextWithLinks(message.text)}</View>
@@ -330,11 +338,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 {formatTime(new Date(message.timestamp))}
               </Text>
             </Animated.View>
-
             {renderReactions}
           </View>
-
-       
           <EmojiSelector
             isVisible={isSelected}
             isOwnMessage={message.isOwn}
@@ -353,13 +358,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           setShowEmojiPicker(false);
         }}
       />
-      
+
       <ReactionDetailsModal
         visible={showReactionDetails}
         onClose={() => setShowReactionDetails(false)}
         allReactions={message.reactions ? Object.entries(message.reactions) : []}
       />
-      
+
       <ReactionDetailsModal
         visible={showVisibleReactionDetails}
         onClose={() => {
@@ -421,11 +426,18 @@ const styles = StyleSheet.create({
   ownMessageBubble: { 
     backgroundColor: '#3b82f6' 
   },
+
+  // ✅ Container para username + badge
+  usernameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
   messageUsername: {
     fontSize: Math.max(windowWidth * 0.03, MIN_FONT_SIZE),
     fontFamily: 'Inter-SemiBold',
     color: '#1dca3aff',
-    marginBottom: 4,
   },
   messageTextContainer: { 
     marginBottom: 3
@@ -521,4 +533,3 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
   },
 });
-

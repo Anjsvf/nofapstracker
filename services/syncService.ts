@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import { messageRepository } from '../data/messageRepository';
 import { syncRepository } from '../data/syncRepository';
 import { Message } from '../types';
@@ -43,19 +42,25 @@ export class SyncService {
       let url = `${API_URL}/api/messages`;
       if (since) url += `?since=${since.toISOString()}`;
 
-      const response = await axios.get(url, {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000,
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
       });
 
-      const serverMessages: Message[] = response.data.map((msg: any) => ({
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      const serverMessages: Message[] = data.map((msg: any) => ({
         ...msg,
         isOwn: msg.username === username,
         timestamp: new Date(msg.timestamp),
         reactions: msg.reactions || {},
         isSynced: true,
         isPending: false,
-        tempId: null,
+        tempId: undefined, 
       }));
 
       let hasUpdates = false;
@@ -100,7 +105,7 @@ export class SyncService {
           isOwn: serverResponse.username === message.username,
           isSynced: true,
           isPending: false,
-          tempId: null,
+          tempId: undefined, 
         };
         await messageRepository.updateMessageWithNewId(message._id, updatedMessage);
       } catch (error) {
@@ -120,27 +125,48 @@ export class SyncService {
       formData.append('text', message.text);
       formData.append('type', 'voice');
       formData.append('audioDuration', message.audioDuration?.toString() || '0');
-      if (message.replyTo) formData.append('replyTo', message.replyTo);
+      
+     
+      if (message.replyTo) {
+        const replyToId = typeof message.replyTo === 'string' 
+          ? message.replyTo 
+          : message.replyTo._id;
+        formData.append('replyTo', replyToId);
+      }
 
-      const res = await axios.post(`${API_URL}/api/messages`, formData, {
+      const res = await fetch(`${API_URL}/api/messages`, {
+        method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`,
         },
-        timeout: 30000,
+        body: formData,
       });
-      return res.data;
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: Falha no áudio`);
+      }
+
+      return await res.json();
     } else {
-      const res = await axios.post(
-        `${API_URL}/api/messages`,
-        {
+      const res = await fetch(`${API_URL}/api/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           text: message.text,
           type: message.type,
-          replyTo: message.replyTo || null,
-        },
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 }
-      );
-      return res.data;
+          
+          replyTo: message.replyTo ? (typeof message.replyTo === 'string' ? message.replyTo : message.replyTo._id) : null,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: Falha no texto`);
+      }
+
+      return await res.json();
     }
   }
 
@@ -150,19 +176,25 @@ export class SyncService {
       let url = `${API_URL}/api/messages`;
       if (lastSync) url += `?since=${lastSync.toISOString()}`;
 
-      const res = await axios.get(url, {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000,
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
       });
 
-      const serverMessages: Message[] = res.data.map((msg: any) => ({
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: Falha no fetch`);
+      }
+
+      const data = await res.json();
+
+      const serverMessages: Message[] = data.map((msg: any) => ({
         ...msg,
         isOwn: msg.username === username,
         timestamp: new Date(msg.timestamp),
         reactions: msg.reactions || {},
         isSynced: true,
         isPending: false,
-        tempId: null,
+        tempId: undefined, 
       }));
 
       for (const msg of serverMessages) {
@@ -181,6 +213,7 @@ export class SyncService {
   }
 
   private async processSyncQueue(token: string | null): Promise<void> {
+  
     const syncQueue = await syncRepository.getSyncQueue();
     for (const item of syncQueue) {
       try {
@@ -197,10 +230,18 @@ export class SyncService {
 
   private async syncReaction(item: any, token: string | null): Promise<void> {
     const data = JSON.parse(item.data);
-    await axios.post(`${API_URL}/api/messages/reaction`, data, {
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 10000,
+    const response = await fetch(`${API_URL}/api/messages/reaction`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: Falha na reação`);
+    }
   }
 
   async addReactionOffline(messageId: string, emoji: string, username: string): Promise<void> {
@@ -222,10 +263,7 @@ export class SyncService {
       }
     }
 
-    
     await messageRepository.updateMessage(messageId, { reactions });
-
-    
     await syncRepository.addToSyncQueue(messageId, 'REACTION', { messageId, emoji, username });
   }
 

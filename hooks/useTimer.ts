@@ -18,7 +18,6 @@ export function useTimer() {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [showManualSetup, setShowManualSetup] = useState(false);
 
-
   useEffect(() => {
     loadTimerState();
     if (Platform.OS !== 'web') {
@@ -26,20 +25,26 @@ export function useTimer() {
     }
   }, []);
 
-  
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  
   useEffect(() => {
     if (timerState !== INITIAL_TIMER_STATE) {
       StorageService.saveTimerState(timerState).catch(console.error);
     }
   }, [timerState]);
 
-  
+ 
+  useEffect(() => {
+    if (timerState.isRunning && timerState.startTime !== null) {
+      NotificationService.scheduleDailyProgressCheck(timerState.startTime, timerState.currentStreak).catch(console.error);
+      NotificationService.scheduleMotivationalNotifications(timerState.startTime, timerState.currentStreak).catch(console.error);
+      NotificationService.scheduleBadgeNotifications(timerState.startTime, timerState.currentStreak).catch(console.error);
+    }
+  }, [timerState.currentStreak, timerState.isRunning, timerState.startTime]);
+
   useEffect(() => {
     if (timerState.isRunning && timerState.startTime) {
       checkForCompletedDays();
@@ -51,6 +56,7 @@ export function useTimer() {
       const saved = await StorageService.loadTimerState();
       if (saved) {
         setTimerState(saved);
+      
       } else {
         setShowManualSetup(true);
       }
@@ -84,6 +90,8 @@ export function useTimer() {
         showBadgeAlert(newBadge);
       }
       NotificationService.showDayCompletionNotification(newStreak).catch(console.error);
+
+     
     }
   }, [currentTime, timerState]);
 
@@ -103,6 +111,8 @@ export function useTimer() {
       startTime: now,
       totalDaysCompleted: 0,
     }));
+    
+   
   }, []);
 
   const setupTimer = useCallback((days: number, startTime: number) => {
@@ -111,10 +121,12 @@ export function useTimer() {
     const daysDuration = 24 * 60 * 60 * 1000;
     const totalDaysCompleted = Math.floor(elapsed / daysDuration);
     
+    const currentStreak = Math.max(days, totalDaysCompleted);
+    
     setTimerState({
       isRunning: true,
       startTime: startTime,
-      currentStreak: Math.max(days, totalDaysCompleted),
+      currentStreak: currentStreak,
       lastResetDate: null,
       totalDaysCompleted: totalDaysCompleted,
     });
@@ -123,12 +135,15 @@ export function useTimer() {
     if (achievedBadge && days > 0) {
       setTimeout(() => {
         Alert.alert(
-          '🎉 Progresso Importado!',
-          `Bem-vindo! Você desbloqueou a conquista "${achievedBadge.name}" e todas as anteriores!`,
+          'Progresso Importado!',
+          ` Você desbloqueou a conquista "${achievedBadge.name}" e todas as anteriores!`,
           [{ text: 'Fantástico!', style: 'default' }]
         );
       }, 500);
     }
+    
+   
+    
     setShowManualSetup(false);
   }, []);
 
@@ -140,7 +155,6 @@ export function useTimer() {
     setShowManualSetup(false);
   }, []);
 
- 
   const resetTimer = useCallback(() => {
     Alert.alert(
       'Resetar Progresso',
@@ -152,9 +166,11 @@ export function useTimer() {
           style: 'destructive',
           onPress: async () => {
             try {
-           
               await StorageService.incrementTotalResets(timerState.currentStreak);
-    
+
+             
+              await NotificationService.cancelAllNotifications();
+              
               setTimerState(prev => ({
                 ...prev,
                 isRunning: false,
@@ -163,7 +179,6 @@ export function useTimer() {
                 lastResetDate: new Date().toISOString(),
                 totalDaysCompleted: 0,
               }));
-              
               
               Alert.alert("Sucesso", "Seu progresso foi resetado e registrado no histórico.");
 

@@ -1,5 +1,7 @@
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   RefreshControl,
@@ -7,9 +9,10 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
-import { Message } from '../../types';
+import { userBadgeCache } from '../../services/UserBadgeCache';
+import { Message, User } from '../../types';
 import { MessageBubble } from './MessageBubble';
 
 interface MessagesListProps {
@@ -23,10 +26,12 @@ interface MessagesListProps {
   onAddReaction?: (messageId: string, emoji: string) => void;
   onReply?: (message: Message) => void;
   scrollViewRef: React.RefObject<ScrollView>;
-  onRefresh?: () => void;
+  onRefresh?: () => Promise<void>;
   isRefreshing?: boolean;
-  autoRefreshOnMount?: boolean; 
+  onlineUsers?: User[];
 }
+
+type ReplyToData = Pick<Message, '_id' | 'username' | 'text' | 'type' | 'timestamp'>;
 
 const { height } = Dimensions.get('window');
 
@@ -43,7 +48,7 @@ export const MessagesList: React.FC<MessagesListProps> = ({
   scrollViewRef,
   onRefresh,
   isRefreshing = false,
-  autoRefreshOnMount = true, 
+  onlineUsers = [],
 }) => {
   const messagePositions = useRef<Map<string, number>>(new Map());
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
@@ -57,39 +62,127 @@ export const MessagesList: React.FC<MessagesListProps> = ({
   const contentHeight = useRef(0);
   const scrollViewHeight = useRef(0);
   const lastSeenMessageCount = useRef(0);
-  const hasAutoRefreshed = useRef(false); 
 
-  const handleRefresh = useCallback(() => {
-    if (onRefresh) {
-      onRefresh();
-    }
-  }, [onRefresh]);
+  
+  const [offlineBadges, setOfflineBadges] = useState<Record<string, string | null>>({});
+  const [loadingBadges, setLoadingBadges] = useState<Set<string>>(new Set());
+
+  
+  const offlineUsernames = useMemo(() => {
+    const onlineSet = new Set(onlineUsers.map(u => u.username));
+    const authors = new Set<string>();
+    messages.forEach(msg => {
+      if (!onlineSet.has(msg.username)) {
+        authors.add(msg.username);
+      }
+    });
+    return Array.from(authors);
+  }, [messages, onlineUsers]);
 
   
   useEffect(() => {
-    if (autoRefreshOnMount && onRefresh && !hasAutoRefreshed.current && isInitialMount.current) {
-      
-      const timer = setTimeout(() => {
-        handleRefresh();
-        hasAutoRefreshed.current = true;
-      }, 100);
+    const loadBadges = async () => {
+      const usernamesToLoad = offlineUsernames.filter(
+        username => offlineBadges[username] === undefined
+      );
 
-      return () => clearTimeout(timer);
+      if (usernamesToLoad.length === 0) return;
+
+     
+      setLoadingBadges(new Set(usernamesToLoad));
+
+      console.log(`💎 Carregando badges offline para ${usernamesToLoad.length} usuários...`);
+
+      const badgePromises = usernamesToLoad.map(async (username) => {
+        try {
+          const badge = await userBadgeCache.getBadge(username);
+          return { username, badgeKey: badge?.key || null };
+        } catch (error) {
+          console.error(`❌ Erro ao carregar badge de ${username}:`, error);
+          return { username, badgeKey: null };
+        }
+      });
+
+      const results = await Promise.all(badgePromises);
+
+      // Atualizar estado com todas as badges de uma vez
+      setOfflineBadges(prev => {
+        const updated = { ...prev };
+        results.forEach(({ username, badgeKey }) => {
+          updated[username] = badgeKey;
+        });
+        return updated;
+      });
+
+      // Remover loading
+      setLoadingBadges(new Set());
+
+      console.log(` Badges offline carregadas:`, results.length);
+    };
+
+    if (offlineUsernames.length > 0) {
+      loadBadges().catch(console.error);
     }
-  }, [autoRefreshOnMount, onRefresh, handleRefresh]);
+  }, [offlineUsernames]);
 
+ 
+  const userBadgeMap = useMemo(() => {
+    const map = new Map<string, string | null>();
+
+   
+    onlineUsers.forEach(user => {
+      map.set(user.username, user.badge?.key || null);
+    });
+
+   
+    Object.entries(offlineBadges).forEach(([username, key]) => {
+      if (!map.has(username)) {
+        map.set(username, key);
+      }
+    });
+
+    return map;
+  }, [onlineUsers, offlineBadges]);
+
+  const handleRefresh = useCallback(async () => {
+    if (!onRefresh) {
+      console.log('⚠️ onRefresh não disponível');
+      return;
+    }
+    if (typeof onRefresh !== 'function') {
+      console.error('❌ onRefresh não é uma função. Tipo:', typeof onRefresh);
+      return;
+    }
+    try {
+      console.log('🔄 Iniciando pull-to-refresh...');
+      await Promise.resolve(onRefresh());
+      console.log('✅ Pull-to-refresh concluído');
+    } catch (error: any) {
+      console.error('❌ Erro no handleRefresh:', {
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack?.substring(0, 200),
+      });
+    }
+  }, [onRefresh]);
 
   const handleMessageSelection = useCallback((messageId: string) => {
     setSelectedMessageId(prev => prev === messageId ? null : messageId);
   }, []);
 
- 
   const handleClearSelection = useCallback(() => {
     setSelectedMessageId(null);
   }, []);
 
-  
-  const resolvedMessages = useMemo(() => {
+  const createReplyToData = (msg: Message): ReplyToData => ({
+    _id: msg._id,
+    username: msg.username,
+    text: msg.text,
+    type: msg.type,
+    timestamp: msg.timestamp,
+  });
+
+  const resolvedMessages = useMemo<Message[]>(() => {
     const messageMap = new Map<string, Message>();
     messages.forEach(msg => {
       messageMap.set(msg._id, msg);
@@ -97,21 +190,16 @@ export const MessagesList: React.FC<MessagesListProps> = ({
         messageMap.set(msg.tempId, msg);
       }
     });
-
     return messages.map(message => {
+      if (message.replyTo && typeof message.replyTo === 'object') {
+        return message;
+      }
       if (message.replyTo && typeof message.replyTo === 'string') {
         const replyToMessage = messageMap.get(message.replyTo);
-
         if (replyToMessage) {
           return {
             ...message,
-            replyTo: {
-              _id: replyToMessage._id,
-              username: replyToMessage.username,
-              text: replyToMessage.text,
-              type: replyToMessage.type,
-              timestamp: replyToMessage.timestamp,
-            },
+            replyTo: createReplyToData(replyToMessage),
           };
         } else {
           return {
@@ -120,9 +208,9 @@ export const MessagesList: React.FC<MessagesListProps> = ({
               _id: message.replyTo,
               username: 'Usuário Desconhecido',
               text: 'Mensagem não encontrada',
-              type: 'text',
+              type: 'text' as const,
               timestamp: new Date(),
-            },
+            } as ReplyToData,
           };
         }
       }
@@ -130,7 +218,6 @@ export const MessagesList: React.FC<MessagesListProps> = ({
     });
   }, [messages]);
 
- 
   useEffect(() => {
     if (messages.length > 0 && isInitialMount.current) {
       setTimeout(() => {
@@ -142,7 +229,6 @@ export const MessagesList: React.FC<MessagesListProps> = ({
     }
   }, [messages.length, scrollViewRef]);
 
- 
   useEffect(() => {
     if (!isInitialMount.current && messages.length > messagesCount.current && shouldAutoScroll.current) {
       setTimeout(() => {
@@ -195,12 +281,9 @@ export const MessagesList: React.FC<MessagesListProps> = ({
     const wasAutoScrolling = shouldAutoScroll.current;
     shouldAutoScroll.current = isNearBottom;
     const shouldShowButton = !isNearBottom && contentSize.height > layoutMeasurement.height;
-    
-    
     if (selectedMessageId && Math.abs(event.nativeEvent.velocity?.y || 0) > 0.5) {
       setSelectedMessageId(null);
     }
-    
     if (shouldShowButton !== showScrollToBottom) {
       setShowScrollToBottom(shouldShowButton);
       Animated.timing(scrollButtonOpacity, {
@@ -224,15 +307,16 @@ export const MessagesList: React.FC<MessagesListProps> = ({
     }
   }, [scrollViewRef]);
 
-  
-  const uniqueMessages = resolvedMessages
-    .filter(msg => msg && msg._id)
-    .reduce<Message[]>((acc, msg) => {
-      if (!acc.some(m => m._id === msg._id)) {
-        acc.push(msg);
-      }
-      return acc;
-    }, []);
+  const uniqueMessages = useMemo<Message[]>(() =>
+    resolvedMessages
+      .filter(msg => msg && msg._id)
+      .reduce<Message[]>((acc, msg) => {
+        if (!acc.some(m => m._id === msg._id)) {
+          acc.push(msg);
+        }
+        return acc;
+      }, []),
+  [resolvedMessages]);
 
   return (
     <View style={styles.container}>
@@ -257,10 +341,21 @@ export const MessagesList: React.FC<MessagesListProps> = ({
               title="Atualizando chat..."
               titleColor="#ffffff"
               progressBackgroundColor="rgba(255, 255, 255, 0.1)"
+              enabled={true}
             />
           ) : undefined
         }
       >
+       
+        {loadingBadges.size > 0 && (
+          <View style={styles.loadingBadgesContainer}>
+            <ActivityIndicator size="small" color="#3b82f6" />
+            <Text style={styles.loadingBadgesText}>
+              Carregando badges...
+            </Text>
+          </View>
+        )}
+
         {uniqueMessages.map((message) => (
           <View
             key={message._id}
@@ -287,11 +382,11 @@ export const MessagesList: React.FC<MessagesListProps> = ({
               isSelected={selectedMessageId === message._id}
               onSelectionChange={handleMessageSelection}
               onClearSelection={handleClearSelection}
+              userBadge={userBadgeMap.get(message.username) || null}
             />
           </View>
         ))}
       </ScrollView>
-
       {showScrollToBottom && (
         <Animated.View
           style={[
@@ -337,6 +432,18 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
     paddingHorizontal: 4,
     paddingVertical: 2,
+  },
+  loadingBadgesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 8,
+  },
+  loadingBadgesText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
   },
   scrollToBottomButton: {
     position: 'absolute',

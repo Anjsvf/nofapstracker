@@ -85,10 +85,10 @@ Indivíduos buscando desenvolver autocontrole e disciplina pessoal através de m
 ### Stack Tecnológica
 ```
 Frontend:
-- React Native 0.74+
-- Expo SDK 51+
+- React Native 
+- Expo SDK 54
 - TypeScript
-- React Navigation 6
+- React Navigation 
 - Expo Router
 
 Backend:
@@ -123,7 +123,7 @@ Notificações:
 
 ### Pré-requisitos
 ```bash
-Node.js 18+
+Node.js 
 Expo CLI
 Android Studio / Xcode (para builds nativos)
 ```
@@ -131,7 +131,7 @@ Android Studio / Xcode (para builds nativos)
 ### Configuração do Ambiente
 ```bash
 # Clone do repositório
-git clone [repository-url]
+git clone [https://github.com/Anjsvf/nofapstracker]
 cd fap-zero
 
 # Instalação de dependências
@@ -449,4 +449,4 @@ console.log('DB Stats:', stats)
 ---
 
 *Documentação atualizada em: setembrom 2025*
-*Versão do App: 1.0.7*
+*Versão do App: 1.0.13*

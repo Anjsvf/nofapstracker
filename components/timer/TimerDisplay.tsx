@@ -1,12 +1,14 @@
 import React from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { StartButton } from '../timer/StartButton';
 
 interface TimerDisplayProps {
   currentDayElapsed: number;
   totalElapsed: number;
   isRunning: boolean;
   progress: number;
+  onStartPress: () => void;
 }
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -15,11 +17,19 @@ export function TimerDisplay({
   currentDayElapsed, 
   totalElapsed, 
   isRunning, 
-  progress 
+  progress,
+  onStartPress 
 }: TimerDisplayProps) {
   const animatedValue = React.useRef(new Animated.Value(0)).current;
-  const size = 220;
-  const strokeWidth = 12;
+  
+  // Responsividade baseada no tamanho da tela
+  const screenWidth = Dimensions.get('window').width;
+  const isSmallDevice = screenWidth < 360;
+  const isMediumDevice = screenWidth >= 360 && screenWidth < 400;
+  
+  // Ajusta tamanhos baseado no dispositivo
+  const size = isSmallDevice ? 200 : 220;
+  const strokeWidth = isSmallDevice ? 10 : 12;
   const center = size / 2;
   const radius = center - strokeWidth / 2;
   const circumference = 2 * Math.PI * radius;
@@ -60,13 +70,47 @@ export function TimerDisplay({
     return `${hours}h ${minutes}m`;
   };
 
+  // Estilos dinâmicos baseados no tamanho do dispositivo
+  const dynamicStyles = {
+    glowEffect: {
+      width: size + 20,
+      height: size + 20,
+      borderRadius: (size + 20) / 2,
+    },
+    timerContent: {
+      width: size - 40,
+      height: size - 40,
+    },
+    timerText: {
+      fontSize: isSmallDevice ? 24 : isMediumDevice ? 26 : 28,
+    },
+    statusDot: {
+      width: isSmallDevice ? 6 : 8,
+      height: isSmallDevice ? 6 : 8,
+      borderRadius: isSmallDevice ? 3 : 4,
+    },
+    statusLabel: {
+      fontSize: isSmallDevice ? 10 : 12,
+    },
+    totalTimeLabel: {
+      fontSize: isSmallDevice ? 9 : 10,
+    },
+    totalTimeText: {
+      fontSize: isSmallDevice ? 12 : 14,
+    },
+    progressText: {
+      fontSize: isSmallDevice ? 14 : 16,
+    },
+    progressLabel: {
+      fontSize: isSmallDevice ? 9 : 10,
+    },
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.timerContainer}>
-       
-        <View style={[styles.glowEffect, { opacity: isRunning ? 0.3 : 0.1 }]} />
+        <View style={[styles.glowEffect, dynamicStyles.glowEffect, { opacity: isRunning ? 0.3 : 0.1 }]} />
         
-       
         <Svg width={size} height={size} style={styles.progressRing}>
           <Defs>
             <LinearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -80,7 +124,6 @@ export function TimerDisplay({
             </LinearGradient>
           </Defs>
           
-         
           <Circle
             cx={center}
             cy={center}
@@ -90,7 +133,6 @@ export function TimerDisplay({
             fill="none"
           />
           
-         
           <AnimatedCircle
             cx={center}
             cy={center}
@@ -106,40 +148,65 @@ export function TimerDisplay({
           />
         </Svg>
 
-        {/* Timer content */}
-        <View style={styles.timerContent}>
-          <View style={styles.timeContainer}>
-            <Text style={styles.timerText}>
-              {formatTime(currentDayElapsed)}
-            </Text>
-            <View style={styles.statusContainer}>
-              <View style={[styles.statusDot, { 
-                backgroundColor: isRunning ? '#72f605ff' : '#666666' 
-              }]} />
-              <Text style={[styles.timerLabel, {
-                color: isRunning ? '#27f610ff' : '#666666'
-              }]}>
-                {isRunning ? 'Em Andamento' : 'Pausado'}
+        {/* Botão de Iniciar - Componente separado */}
+        {!isRunning && <StartButton onPress={onStartPress} />}
+
+        {/* Conteúdo do Timer - Só aparece quando está rodando */}
+        {isRunning && (
+          <View style={[styles.timerContent, dynamicStyles.timerContent]}>
+            <View style={styles.timeContainer}>
+              <Text 
+                style={[styles.timerText, { fontSize: dynamicStyles.timerText.fontSize }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {formatTime(currentDayElapsed)}
               </Text>
+              <View style={styles.statusContainer}>
+                <View style={[
+                  styles.statusDot, 
+                  dynamicStyles.statusDot,
+                  { backgroundColor: '#72f605ff' }
+                ]} />
+                <Text style={[
+                  styles.timerLabel, 
+                  { 
+                    fontSize: dynamicStyles.statusLabel.fontSize,
+                    color: '#27f610ff'
+                  }
+                ]}>
+                  Em Andamento
+                </Text>
+              </View>
             </View>
-          </View>
-          
-          {isRunning && (
+            
             <View style={styles.totalTimeContainer}>
-              <Text style={styles.totalTimeLabel}>Tempo Total</Text>
-              <Text style={styles.totalTimeText}>
+              <Text style={[styles.totalTimeLabel, { fontSize: dynamicStyles.totalTimeLabel.fontSize }]}>
+                Tempo Total
+              </Text>
+              <Text 
+                style={[styles.totalTimeText, { fontSize: dynamicStyles.totalTimeText.fontSize }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
                 {formatTotalTime(totalElapsed)}
               </Text>
             </View>
-          )}
-          
-          <View style={styles.progressContainer}>
-            <Text style={styles.progressText}>
-              {Math.round(progress * 100)}%
-            </Text>
-            <Text style={styles.progressLabel}>do dia completo</Text>
+            
+            <View style={styles.progressContainer}>
+              <Text style={[styles.progressText, { fontSize: dynamicStyles.progressText.fontSize }]}>
+                {Math.round(progress * 100)}%
+              </Text>
+              <Text 
+                style={[styles.progressLabel, { fontSize: dynamicStyles.progressLabel.fontSize }]}
+                numberOfLines={1}
+              >
+                do dia completo
+              </Text>
+            </View>
           </View>
-        </View>
+        )}
       </View>
     </View>
   );
@@ -157,9 +224,6 @@ const styles = StyleSheet.create({
   },
   glowEffect: {
     position: 'absolute',
-    width: 240,
-    height: 240,
-    borderRadius: 120,
     backgroundColor: '#1a1a1a',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 0 },
@@ -176,66 +240,63 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 180,
-    height: 180,
   },
   timeContainer: {
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
+    width: '100%',
+    paddingHorizontal: 4,
   },
   timerText: {
-    fontSize: 28,
     fontFamily: 'RobotoMono-Bold',
     color: '#ffffff',
-    marginBottom: 6,
+    marginBottom: 4,
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
+    letterSpacing: 1,
   },
   statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    marginRight: 4,
     shadowColor: '#ffffff',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.3,
     shadowRadius: 2,
   },
   timerLabel: {
-    fontSize: 12,
     fontFamily: 'Inter-Medium',
   },
   totalTimeContainer: {
     alignItems: 'center',
-    marginBottom: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    marginBottom: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
+    maxWidth: '90%',
   },
   totalTimeLabel: {
-    fontSize: 10,
     fontFamily: 'Inter-Regular',
     color: '#999999',
-    marginBottom: 2,
+    marginBottom: 1,
   },
   totalTimeText: {
-    fontSize: 14,
     fontFamily: 'RobotoMono-SemiBold',
     color: '#ffffff',
   },
   progressContainer: {
     alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 4,
   },
   progressText: {
-    fontSize: 16,
     fontFamily: 'Inter-Bold',
     color: '#ffffff',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
@@ -243,7 +304,6 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   progressLabel: {
-    fontSize: 10,
     fontFamily: 'Inter-Regular',
     color: '#cccccc',
     textAlign: 'center',

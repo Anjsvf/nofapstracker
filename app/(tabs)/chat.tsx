@@ -1,7 +1,7 @@
+
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Animated,
   Dimensions,
   Keyboard,
@@ -12,41 +12,28 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Componentes da UI do Chat
 import { ChatHeader } from '../components/ChatHeader';
 import { MessageInput } from '../components/MessageInput';
 import { MessagesList } from '../components/MessagesList';
 import { OfflineStatus } from '../components/OfflineStatus';
 import { RecordingUI } from '../components/RecordingUI';
 
-// Componentes do fluxo de Autenticação
 import { LoginScreen } from '../../auth/LoginScreen';
-import { EmailVerificationScreen } from '../components/verificatios/EmailVerificationScreen';
-import { ForgotPasswordScreen } from '../components/verificatios/ForgotPasswordScreen';
-import { ResetPasswordScreen } from '../components/verificatios/ResetPass';
 
-// Hooks customizados
 import { useAuth } from '../../hooks/useAuth';
 import { useOfflineAudio } from '../../hooks/useOfflineAudio';
 import { useOfflineChat } from '../../hooks/useOfflineChat';
-
+import { useTimer } from '../../hooks/useTimer';
 
 import { LoadingScreen } from '../../components/loading/LoadingScreen';
+import { BadgeSyncService } from '../../services/badgeSyncService';
 
 const { width } = Dimensions.get('window');
-
-
-type AuthMode = 'login' | 'verifyEmail' | 'forgotPassword' | 'resetPassword';
 
 export default function ChatScreen() {
   const [keyboardHeight] = useState(new Animated.Value(0));
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
-  const [authEmail, setAuthEmail] = useState(''); 
-
- 
   const {
     username,
     email,
@@ -60,11 +47,10 @@ export default function ChatScreen() {
     handleRegister,
     handleLogin,
     handleLogout,
-    verifyEmail,
-    resendVerificationCode,
-    forgotPassword,
-    resetPassword,
   } = useAuth();
+
+  
+  const { timerState } = useTimer();
 
   
   const {
@@ -82,9 +68,8 @@ export default function ChatScreen() {
     forceSync,
     refreshMessages,
     isOnline,
-  } = useOfflineChat(username);
+  } = useOfflineChat(username, timerState.currentStreak); 
 
-  
   const {
     isRecording,
     showRecordingUI,
@@ -106,60 +91,32 @@ export default function ChatScreen() {
 
   const scrollViewRef = useRef<ScrollView>(null);
   const pendingMessagesCount = messages.filter(m => m.isPending).length;
-
-  
-  const onRegisterPress = async () => {
-    const result = await handleRegister();
-    if (result.success && result.needsVerification) {
-      setAuthEmail(result.email!);
-      setAuthMode('verifyEmail');
-    }
-  };
-
-  const onLoginPress = async () => {
-    const result = await handleLogin();
-    if (!result.success && result.needsVerification) {
-      setAuthEmail(result.email!);
-      setAuthMode('verifyEmail');
-      if (result.message) {
-        Alert.alert('Verificação Necessária', result.message);
-      }
-    }
-  };
-
-  const onVerifyEmailPress = async (code: string) => {
-    await verifyEmail(code, authEmail);
-    
-  };
-
-  const onForgotPasswordPress = async (email: string) => {
-    const success = await forgotPassword(email);
-    if (success) {
-      setAuthEmail(email);
-      setAuthMode('resetPassword');
-    }
-  };
-
-  const onResetPasswordPress = async (code: string, newPass: string) => {
-    const success = await resetPassword(authEmail, code, newPass);
-    if (success) {
-      setAuthMode('login'); 
-    }
-  };
-
-  const onResendCodePress = async (type: 'email_verification' | 'password_reset') => {
-    await resendVerificationCode(authEmail, type);
-  };
+  const badgeSyncInitialized = useRef(false);
 
   const handleRefresh = async () => {
+    console.log('🔄 Pull-to-refresh iniciado');
     setIsRefreshing(true);
+    
     try {
-      await refreshMessages();
-    } catch (error) {
-      console.error('Erro no refresh:', error);
+      if (typeof refreshMessages === 'function') {
+        await refreshMessages();
+        console.log('✅ Pull-to-refresh concluído');
+      } else {
+        console.error('❌ refreshMessages não é uma função');
+      }
+    } catch (error: any) {
+      console.error('❌ Erro no refresh:', error?.message);
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  const onRegisterPress = async () => {
+    await handleRegister();
+  };
+
+  const onLoginPress = async () => {
+    await handleLogin();
   };
 
   useEffect(() => {
@@ -191,68 +148,56 @@ export default function ChatScreen() {
       keyboardWillShowListener.remove();
       keyboardWillHideListener.remove();
       cleanup();
+      BadgeSyncService.stopPeriodicSync();
     };
   }, []);
+
+ 
+  useEffect(() => {
+    if (isInitialized && isLoggedIn && isOnline) {
+      const currentStreak = timerState.currentStreak || 0;
+      
+      if (!badgeSyncInitialized.current) {
+
+        badgeSyncInitialized.current = true;
+        
+        BadgeSyncService.syncBadgeOnConnect(currentStreak);
+        BadgeSyncService.startPeriodicSync(() => timerState.currentStreak || 0);
+        
+        console.log('💎 Badge sync inicializado com streak:', currentStreak);
+      } else {
+       
+        BadgeSyncService.updateBadge(currentStreak);
+        console.log('💎 Badge atualizada para streak:', currentStreak);
+      }
+    }
+  }, [isInitialized, isLoggedIn, isOnline, timerState.currentStreak]);
 
   const handleLogoutWithCleanup = async () => {
     const success = await handleLogout();
     if (success) {
       cleanup();
-      setAuthMode('login'); 
+      BadgeSyncService.stopPeriodicSync();
+      badgeSyncInitialized.current = false;
     }
   };
 
-  
   if (!isLoggedIn) {
-    switch (authMode) {
-      case 'verifyEmail':
-        return (
-          <EmailVerificationScreen
-            email={authEmail}
-            onVerificationSuccess={onVerifyEmailPress}
-            onResendCode={() => onResendCodePress('email_verification')}
-            onBackToLogin={() => setAuthMode('login')}
-            isLoading={isLoading}
-          />
-        );
-      case 'forgotPassword':
-        return (
-          <ForgotPasswordScreen
-            onSubmit={onForgotPasswordPress}
-            onBackToLogin={() => setAuthMode('login')}
-            isLoading={isLoading}
-          />
-        );
-      case 'resetPassword':
-        return (
-          <ResetPasswordScreen
-            email={authEmail}
-            onResetPassword={onResetPasswordPress}
-            onResendCode={() => onResendCodePress('password_reset')}
-            onBackToLogin={() => setAuthMode('login')}
-            isLoading={isLoading}
-          />
-        );
-      case 'login':
-      default:
-        return (
-          <LoginScreen
-            username={username}
-            email={email}
-            password={password}
-            setUsername={setUsername}
-            setEmail={setEmail}
-            setPassword={setPassword}
-            onRegister={onRegisterPress}
-            onLogin={onLoginPress}
-            onForgotPassword={() => setAuthMode('forgotPassword')}
-            isLoading={isLoading}
-          />
-        );
-    }
+    return (
+      <LoginScreen
+        username={username}
+        email={email}
+        password={password}
+        setUsername={setUsername}
+        setEmail={setEmail}
+        setPassword={setPassword}
+        onRegister={onRegisterPress}
+        onLogin={onLoginPress}
+        isLoading={isLoading}
+      />
+    );
   }
 
-  
   if (!isInitialized) {
     return (
       <LinearGradient colors={['#000000', '#000000', '#000000']} style={styles.container}>
@@ -265,7 +210,6 @@ export default function ChatScreen() {
     );
   }
 
-  
   return (
     <LinearGradient colors={['#000000', '#000000', '#000000']} style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -293,6 +237,7 @@ export default function ChatScreen() {
               scrollViewRef={scrollViewRef}
               onRefresh={handleRefresh}
               isRefreshing={isRefreshing}
+              onlineUsers={onlineUsers}
             />
           </View>
 

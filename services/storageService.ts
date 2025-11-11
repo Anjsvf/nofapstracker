@@ -8,7 +8,7 @@ export class StorageService {
   private static readonly PROFILE_DATA_KEY = 'profileData';
   private static readonly RESET_HISTORY_KEY = 'resetHistory';
 
-  // Timer State Management
+ 
   static async saveTimerState(timerState: TimerState): Promise<void> {
     try {
       await AsyncStorage.setItem(this.TIMER_STATE_KEY, JSON.stringify(timerState));
@@ -28,7 +28,7 @@ export class StorageService {
     }
   }
 
-  // Username Management
+ 
   static async saveUsername(username: string): Promise<void> {
     try {
       await AsyncStorage.setItem(this.USERNAME_KEY, username);

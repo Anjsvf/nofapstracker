@@ -161,12 +161,12 @@ const styles = StyleSheet.create({
     fontSize: width * 0.04,
     fontFamily: 'Inter-Regular',
     color: '#ffffff',
-    paddingVertical: height * 0.01, // Reduzido
-    paddingRight: width * 0.02, // Espaço para o botão send
-    minHeight: width * 0.08, // Altura mínima
+    paddingVertical: height * 0.01, 
+    paddingRight: width * 0.02, 
+    minHeight: width * 0.08, 
     maxHeight: height * 0.15,
-    textAlignVertical: 'top', // Melhor para multiline
-    includeFontPadding: false, // Remove padding extra do Android
+    textAlignVertical: 'top',
+    includeFontPadding: false, 
   },
   sendButton: {
     backgroundColor: '#3b82f6',
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
     height: width * 0.1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: width * 0.01, // Reduzido
+    marginLeft: width * 0.01, 
   },
   sendButtonDisabled: {
     backgroundColor: '#64748b',

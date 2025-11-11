@@ -232,12 +232,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    backgroundColor: '#000',
     borderRadius: 16,
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.2)',
+    borderColor: '#000',
   },
   statItem: {
     alignItems: 'center',
@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
   currentBadgeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    backgroundColor: '#000',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,

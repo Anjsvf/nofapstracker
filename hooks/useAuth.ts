@@ -1,4 +1,3 @@
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { useState } from 'react';
@@ -56,20 +55,13 @@ export const useAuth = () => {
 
       setIsLoading(false);
 
-      if (response.data.needsVerification) {
-        return {
-          success: true,
-          needsVerification: true,
-          email: response.data.email,
-        };
-      }
-
      
       await AsyncStorage.setItem('token', response.data.token);
       await AsyncStorage.setItem('username', response.data.username);
       setUsername(response.data.username);
       setIsLoggedIn(true);
 
+      Alert.alert('Sucesso', 'Usuário registrado com sucesso!');
       return { success: true };
     } catch (error: any) {
       setIsLoading(false);
@@ -93,14 +85,6 @@ export const useAuth = () => {
 
       setIsLoading(false);
 
-      if (response.data.needsVerification) {
-        return {
-          success: false,
-          needsVerification: true,
-          email: response.data.email,
-        };
-      }
-
       await AsyncStorage.setItem('token', response.data.token);
       await AsyncStorage.setItem('username', response.data.username);
       setUsername(response.data.username);
@@ -110,112 +94,8 @@ export const useAuth = () => {
     } catch (error: any) {
       setIsLoading(false);
       const message = error.response?.data?.message || 'Falha ao fazer login';
-      if (error.response?.data?.needsVerification) {
-        return {
-          success: false,
-          needsVerification: true,
-          email: error.response.data.email,
-          message,
-        };
-      }
       Alert.alert('Erro', message);
       return { success: false };
-    }
-  };
-
-  const verifyEmail = async (verificationCode: string, userEmail: string) => {
-    if (!verificationCode || verificationCode.length !== 6) {
-      Alert.alert('Erro', 'Código de verificação inválido');
-      return false;
-    }
-
-    setIsLoading(true);
-    try {
-      const response = await axios.post(`${API_URL}/api/auth/verify-email`, {
-        email: userEmail,
-        code: verificationCode,
-      });
-
-      await AsyncStorage.setItem('token', response.data.token);
-      await AsyncStorage.setItem('username', response.data.username);
-      setUsername(response.data.username);
-      setIsLoggedIn(true);
-      setIsLoading(false);
-
-      Alert.alert('Sucesso', 'E-mail verificado com sucesso!');
-      return true;
-    } catch (error: any) {
-      setIsLoading(false);
-      Alert.alert('Erro', error.response?.data?.message || 'Falha na verificação');
-      return false;
-    }
-  };
-
-  const resendVerificationCode = async (
-    userEmail: string,
-    type: 'email_verification' | 'password_reset' = 'email_verification'
-  ) => {
-    setIsLoading(true);
-    try {
-      await axios.post(`${API_URL}/api/auth/resend-code`, {
-        email: userEmail,
-        type,
-      });
-      setIsLoading(false);
-      Alert.alert('Sucesso', 'Código reenviado com sucesso!');
-      return true;
-    } catch (error: any) {
-      setIsLoading(false);
-      Alert.alert('Erro', error.response?.data?.message || 'Falha ao reenviar código');
-      return false;
-    }
-  };
-
-  const forgotPassword = async (userEmail: string) => {
-    if (!userEmail) {
-      Alert.alert('Erro', 'E-mail é obrigatório');
-      return false;
-    }
-
-    setIsLoading(true);
-    try {
-      await axios.post(`${API_URL}/api/auth/forgot-password`, {
-        email: userEmail,
-      });
-      setIsLoading(false);
-      Alert.alert('Sucesso', 'Se este e-mail existir, um código foi enviado.');
-      return true;
-    } catch (error: any) {
-      setIsLoading(false);
-      Alert.alert('Erro', error.response?.data?.message || 'Falha ao solicitar recuperação');
-      return false;
-    }
-  };
-
-  const resetPassword = async (userEmail: string, resetCode: string, newPassword: string) => {
-    if (!resetCode || resetCode.length !== 6) {
-      Alert.alert('Erro', 'Código de recuperação inválido');
-      return false;
-    }
-    if (newPassword.length < 6) {
-      Alert.alert('Erro', 'A nova senha deve ter pelo menos 6 caracteres');
-      return false;
-    }
-
-    setIsLoading(true);
-    try {
-      await axios.post(`${API_URL}/api/auth/reset-password`, {
-        email: userEmail,
-        code: resetCode,
-        newPassword,
-      });
-      setIsLoading(false);
-      Alert.alert('Sucesso', 'Senha redefinida com sucesso!');
-      return true;
-    } catch (error: any) {
-      setIsLoading(false);
-      Alert.alert('Erro', error.response?.data?.message || 'Falha ao redefinir senha');
-      return false;
     }
   };
 
@@ -257,9 +137,5 @@ export const useAuth = () => {
     handleRegister,
     handleLogin,
     handleLogout,
-    verifyEmail,
-    resendVerificationCode,
-    forgotPassword,
-    resetPassword,
   };
 };

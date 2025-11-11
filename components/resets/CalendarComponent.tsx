@@ -12,6 +12,8 @@ import {
 interface CalendarComponentProps {
   currentDate: Date
   resetHistory: ResetHistoryEntry[]
+  startDate?: Date | null
+  isRunning?: boolean 
   onDatePress: (date: Date) => void
   onMonthNavigate: (direction: 'prev' | 'next') => void
   isLoading?: boolean
@@ -20,6 +22,8 @@ interface CalendarComponentProps {
 export function CalendarComponent({
   currentDate,
   resetHistory,
+  startDate,
+  isRunning = true, 
   onDatePress,
   onMonthNavigate,
   isLoading = false,
@@ -93,13 +97,43 @@ export function CalendarComponent({
     return date > today
   }, [])
 
+  
+  const isActiveDay = useCallback((date: Date) => {
+    const dateDay = new Date(date)
+    dateDay.setHours(0, 0, 0, 0)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const daysMs = 24 * 60 * 60 * 1000
+
+   
+    if (isRunning && startDate) {
+      const startDay = new Date(startDate)
+      startDay.setHours(0, 0, 0, 0)
+      if (dateDay >= startDay && dateDay <= today) {
+        return true
+      }
+    }
+
+    
+    for (const reset of resetHistory) {
+      if (reset.daysCompleted == null || reset.daysCompleted <= 0) continue
+      const resetDay = new Date(reset.date)
+      resetDay.setHours(0, 0, 0, 0)
+      const approxStartDay = new Date(resetDay.getTime() - reset.daysCompleted * daysMs)
+      approxStartDay.setHours(0, 0, 0, 0)
+      if (dateDay >= approxStartDay && dateDay < resetDay) {
+        return true
+      }
+    }
+
+    return false
+  }, [isRunning, startDate, resetHistory])
+
   const renderCalendarDays = useCallback(() => {
     const daysInMonth = getDaysInMonth(currentDate)
     const firstDay = getFirstDayOfMonth(currentDate)
+    const days: React.ReactNode[] = []
 
-    const days: React.ReactNode[] = [] 
-
-  
     for (let i = 0; i < firstDay; i++) {
       days.push(
         <View
@@ -109,7 +143,6 @@ export function CalendarComponent({
       )
     }
 
-    
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(
         currentDate.getFullYear(),
@@ -120,6 +153,7 @@ export function CalendarComponent({
       const resetCount = getResetCountForDate(date)
       const isTodayDate = isToday(date)
       const isFuture = isFutureDate(date)
+      const isActive = isActiveDay(date)
 
       const dayStyle: (ViewStyle | any)[] = [styles.dayCell]
       const textStyle: (TextStyle | any)[] = [styles.dayText]
@@ -130,12 +164,15 @@ export function CalendarComponent({
       } else if (isReset) {
         dayStyle.push(styles.resetDayCell)
         textStyle.push(styles.resetDayText)
-      } else {
+      } else if (isActive) {
         dayStyle.push(styles.cleanDayCell)
         textStyle.push(styles.cleanDayText)
+      } else {
+        dayStyle.push(styles.beforeStartDayCell)
+        textStyle.push(styles.beforeStartDayText)
       }
 
-      if (isTodayDate && !isFuture) {
+      if (isTodayDate && !isFuture && isActive) {
         dayStyle.push(styles.todayBorder)
       }
 
@@ -144,7 +181,7 @@ export function CalendarComponent({
           key={day}
           style={dayStyle}
           onPress={() => onDatePress(date)}
-          disabled={isFuture}
+          disabled={isFuture} 
         >
           <Text style={textStyle}>{day}</Text>
           {isReset && resetCount > 1 && (
@@ -156,7 +193,6 @@ export function CalendarComponent({
       )
     }
 
-    
     const totalCells = firstDay + daysInMonth
     const remaining = 7 - (totalCells % 7)
     if (remaining < 7) {
@@ -169,7 +205,6 @@ export function CalendarComponent({
         )
       }
     }
-
     return days
   }, [
     currentDate,
@@ -179,6 +214,7 @@ export function CalendarComponent({
     getResetCountForDate,
     isToday,
     isFutureDate,
+    isActiveDay, 
     onDatePress,
   ])
 
@@ -209,7 +245,6 @@ export function CalendarComponent({
           <Text style={styles.monthNavText}>›</Text>
         </TouchableOpacity>
       </View>
-
       <View style={styles.weekDaysContainer}>
         {weekDays.map((day) => (
           <Text key={day} style={styles.weekDayText}>
@@ -217,7 +252,6 @@ export function CalendarComponent({
           </Text>
         ))}
       </View>
-
       <View style={styles.calendarGrid}>{renderCalendarDays()}</View>
     </View>
   )
@@ -225,7 +259,7 @@ export function CalendarComponent({
 
 const styles = StyleSheet.create({
   calendarContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 1)',
     borderRadius: 20,
     padding: 20,
     marginBottom: 24,
@@ -308,6 +342,14 @@ const styles = StyleSheet.create({
   },
   futureDayText: {
     color: '#6b7280',
+  },
+  beforeStartDayCell: {
+    backgroundColor: '#ffffff71',
+    borderWidth: 1,
+    borderColor: 'rgba(48, 23, 23, 0.5)',
+  },
+  beforeStartDayText: {
+    color: '#000',
   },
   todayBorder: {
     borderWidth: 2,

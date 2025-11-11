@@ -1,6 +1,7 @@
 import { CalendarComponent } from '@/components/resets/CalendarComponent';
 import { CustomAlert } from '@/components/resets/CustomAlert/CustomAlert';
 import { HistoryDetailsModal } from '@/components/resets/HistoryDetailsModal';
+import { useTimer } from '@/hooks/useTimer';
 import { StorageService } from '@/services/storageService';
 import { ResetHistoryEntry } from '@/types';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -37,6 +38,10 @@ export function ResetHistoryCalendar({ visible, onClose }: ResetHistoryCalendarP
     title: '',
     message: '',
   });
+
+  // Integrate useTimer
+  const { timerState } = useTimer();
+  const startDate = timerState.startTime ? new Date(timerState.startTime) : null;
 
   const loadResetHistory = useCallback(async () => {
     if (!visible) return;
@@ -95,7 +100,7 @@ export function ResetHistoryCalendar({ visible, onClose }: ResetHistoryCalendarP
       return dateToCheck > today;
     };
 
-    if (isFutureDate(date)) return;
+    if (isFutureDate(date)) return; // Apenas bloqueia dias futuros
     
     const resets = resetHistory.filter(reset => {
       const resetDate = new Date(reset.date);
@@ -119,17 +124,6 @@ export function ResetHistoryCalendar({ visible, onClose }: ResetHistoryCalendarP
       );
     }
   }, [resetHistory, showAlert]);
-
-  // const handleTestButton = useCallback(async () => {
-  //   try {
-  //     await StorageService.testResetHistory();
-  //     await loadResetHistory();
-  //     showAlert('Teste', 'Entrada de teste adicionada! Verifique o console para logs.');
-  //   } catch (error) {
-  //     console.error('Test failed:', error);
-  //     showAlert('Erro', 'Falha no teste. Verifique o console.');
-  //   }
-  // }, [loadResetHistory, showAlert]);
 
   const closeDetailModal = useCallback(() => {
     setDetailModal({
@@ -181,24 +175,11 @@ export function ResetHistoryCalendar({ visible, onClose }: ResetHistoryCalendarP
             contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{totalResets}</Text>
-                <Text style={styles.statLabel}>Total de Resets</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{currentMonthResets}</Text>
-                <Text style={styles.statLabel}>Resets este Mês</Text>
-              </View>
-            </View>
-{/* 
-            <TouchableOpacity onPress={handleTestButton} style={styles.debugButton}>
-              <Text style={styles.debugButtonText}>🧪 Adicionar Reset Teste</Text>
-            </TouchableOpacity> */}
-
             <CalendarComponent
               currentDate={currentDate}
               resetHistory={resetHistory}
+              startDate={startDate}
+              isRunning={timerState.isRunning} // Nova prop passada
               onDatePress={handleDatePress}
               onMonthNavigate={navigateMonth}
               isLoading={isLoading}
@@ -210,7 +191,7 @@ export function ResetHistoryCalendar({ visible, onClose }: ResetHistoryCalendarP
                 <View style={[styles.legendItem, styles.cleanDayCell]}>
                   <Text style={[styles.legendText, styles.cleanDayText]}>15</Text>
                 </View>
-                <Text style={styles.legendLabel}>Dias sem reset</Text>
+                <Text style={styles.legendLabel}>Dias sem reset (streak ativo)</Text>
               </View>
               <View style={styles.legendRow}>
                 <View style={[styles.legendItem, styles.resetDayCell]}>
@@ -233,6 +214,12 @@ export function ResetHistoryCalendar({ visible, onClose }: ResetHistoryCalendarP
                 </View>
                 <Text style={styles.legendLabel}>Dias futuros</Text>
               </View>
+              <View style={styles.legendRow}>
+                <View style={[styles.legendItem, styles.beforeStartDayCell]}>
+                  <Text style={[styles.legendText, styles.beforeStartDayText]}>15</Text>
+                </View>
+                <Text style={styles.legendLabel}>Fora do período de tracking</Text>
+              </View>
             </View>
           </ScrollView>
         </LinearGradient>
@@ -242,6 +229,7 @@ export function ResetHistoryCalendar({ visible, onClose }: ResetHistoryCalendarP
         visible={detailModal.visible}
         date={detailModal.date}
         resets={detailModal.resets}
+        allResets={resetHistory}
         onClose={closeDetailModal}
       />
 
@@ -360,7 +348,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
   },
   legendContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.98)',
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
@@ -394,6 +382,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Regular',
     color: '#ffffff',
+    flex: 1,
   },
   cleanDayCell: {
     backgroundColor: 'rgba(34, 197, 94, 0.3)',
@@ -416,6 +405,14 @@ const styles = StyleSheet.create({
   },
   futureDayText: {
     color: '#6b7280',
+  },
+  beforeStartDayCell: {
+    backgroundColor: '#ffffff71',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  beforeStartDayText: {
+    color: '#000',
   },
   resetCountBadge: {
     position: 'absolute',

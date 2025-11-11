@@ -15,11 +15,11 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
-// Prevent auto-hide splash screen
+
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  // Always call hooks in the same order
+ 
   useFrameworkReady();
 
   const [fontsLoaded, fontError] = useFonts({
@@ -31,14 +31,14 @@ export default function RootLayout() {
     'RobotoMono-Bold': RobotoMono_700Bold,
   });
 
-  // Single useEffect for splash screen management
+  
   useEffect(() => {
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
 
-  // Don't render anything until fonts are loaded or error occurs
+  
   if (!fontsLoaded && !fontError) {
     return null;
   }
@@ -47,7 +47,7 @@ export default function RootLayout() {
     <>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
+        {/* <Stack.Screen name="+not-found" /> */}
       </Stack>
       <StatusBar style="light"  />
     </>

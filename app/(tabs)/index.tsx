@@ -4,7 +4,7 @@ import { MotivationService } from "@/constants/MotivationService";
 import { useTimer } from "@/hooks/useTimer";
 import { BadgeService } from "@/services/badgeService";
 import { LinearGradient } from "expo-linear-gradient";
-import { Play, RotateCcw, Settings, TrendingUp } from "lucide-react-native";
+import { RotateCcw, Settings, TrendingUp } from "lucide-react-native";
 import React from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,7 +30,7 @@ export default function HomeScreen() {
     <View
       style={[
         styles.container,
-        { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 10 },
+        { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 90 },
       ]}
     >
       <View style={styles.content}>
@@ -38,15 +38,6 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>Fap Zerø</Text>
           <Text style={styles.subtitle}>Sua jornada de autodisciplina</Text>
-          {timerState.isRunning && (
-            <TouchableOpacity
-              style={styles.setupButton}
-              onPress={showSetupModal}
-            >
-              <Settings size={18} color="#64748b" />
-              <Text style={styles.setupButtonText}>Ajustar</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         {/* Badge */}
@@ -61,20 +52,45 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Relógio com Alavanca */}
-        <View style={styles.timerWithLeverContainer}>
+        {/* Relógio com Alavancas */}
+        <View style={styles.timerWithLeversContainer}>
           <View style={styles.timerContainer}>
             <TimerDisplay
               currentDayElapsed={getCurrentDayElapsed()}
               totalElapsed={getTotalElapsed()}
               isRunning={timerState.isRunning}
               progress={getCurrentDayProgress()}
+              onStartPress={startTimer}
             />
           </View>
 
-          {/* Alavanca do lado direito */}
+          {/* Alavanca de Ajustar do lado esquerdo */}
           {timerState.isRunning && (
-            <View style={styles.leverContainer}>
+            <View style={styles.setupLeverContainer}>
+              <View style={styles.leverBase}>
+                <View style={styles.leverBaseInner} />
+              </View>
+              <View style={styles.leverHandle}>
+                <TouchableOpacity
+                  style={styles.leverButton}
+                  onPress={showSetupModal}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["#3b82f6", "#1d4ed8"]}
+                    style={styles.setupLeverButtonGradient}
+                  >
+                    <Settings size={18} color="#ffffff" />
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.setupLeverLabel}>Ajuste seu tempo</Text>
+            </View>
+          )}
+
+          {/* Alavanca de Reset do lado direito */}
+          {timerState.isRunning && (
+            <View style={styles.resetLeverContainer}>
               <View style={styles.leverBase}>
                 <View style={styles.leverBaseInner} />
               </View>
@@ -85,14 +101,14 @@ export default function HomeScreen() {
                   activeOpacity={0.8}
                 >
                   <LinearGradient
-                    colors={["#ef4444", "#dc2626"]}
-                    style={styles.leverButtonGradient}
+                    colors={["#ef4444", "#ff0505ff"]}
+                    style={styles.resetLeverButtonGradient}
                   >
                     <RotateCcw size={18} color="#ffffff" />
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
-              <Text style={styles.leverLabel}>Reset</Text>
+              <Text style={styles.resetLeverLabel}>Reset</Text>
             </View>
           )}
         </View>
@@ -116,38 +132,6 @@ export default function HomeScreen() {
             )}
           </View>
         </View>
-
-        {/* Botão Iniciar (só aparece quando não está rodando) */}
-        {!timerState.isRunning && (
-          <View style={styles.controlsContainer}>
-            <TouchableOpacity style={styles.startButton} onPress={startTimer}>
-              <Play size={20} color="#ffffff" />
-              <Text style={styles.buttonText}>Iniciar</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{timerState.currentStreak}</Text>
-            <Text style={styles.statLabel}>Dias</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>
-              {Math.floor(getCurrentDayElapsed() / (1000 * 60 * 60)) || 0}
-            </Text>
-            <Text style={styles.statLabel}>Horas</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>
-              {Math.round(getCurrentDayProgress() * 100) || 0}%
-            </Text>
-            <Text style={styles.statLabel}>Progresso</Text>
-          </View>
-        </View>
       </View>
 
       <ManualSetupModal
@@ -169,19 +153,8 @@ const styles = StyleSheet.create({
   header: { alignItems: "center" },
   title: { fontSize: 26, fontFamily: "Inter-Bold", color: "#fff" },
   subtitle: { fontSize: 14, fontFamily: "Inter-Regular", color: "#64748b" },
-  setupButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.1)",
-  },
-  setupButtonText: { fontSize: 12, color: "#64748b", marginLeft: 4 },
 
-  // Container do timer com alavanca
-  timerWithLeverContainer: {
+  timerWithLeversContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -194,8 +167,13 @@ const styles = StyleSheet.create({
     flex: 0,
   },
 
-  // Estilos da alavanca
-  leverContainer: {
+  setupLeverContainer: {
+    position: "absolute",
+    left: 20,
+    alignItems: "center",
+    width: 60,
+  },
+  resetLeverContainer: {
     position: "absolute",
     right: 20,
     alignItems: "center",
@@ -232,13 +210,22 @@ const styles = StyleSheet.create({
     width: 45,
     height: 45,
     borderRadius: 22.5,
-    shadowColor: "#ef4444",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 8,
   },
-  leverButtonGradient: {
+  setupLeverButtonGradient: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#93c5fd",
+  },
+  resetLeverButtonGradient: {
     width: 45,
     height: 45,
     borderRadius: 22.5,
@@ -247,7 +234,14 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: "#fca5a5",
   },
-  leverLabel: {
+  setupLeverLabel: {
+    fontSize: 10,
+    color: "#3b82f6",
+    fontFamily: "Inter-Medium",
+    marginTop: 90,
+    textAlign: "center",
+  },
+  resetLeverLabel: {
     fontSize: 10,
     color: "#ef4444",
     fontFamily: "Inter-Medium",
@@ -260,53 +254,42 @@ const styles = StyleSheet.create({
     padding: 16, 
     borderRadius: 12, 
     alignItems: "center",
-    
+    backgroundColor: "#000",
+    borderWidth: 1,
+    borderColor: "#000",
   },
   streakHeader: { flexDirection: "row", alignItems: "center" },
   streakLabel: { fontSize: 14, color: "#64748b", marginLeft: 6 },
-  streakNumber: { fontSize: 48, color: "#fff" },
+  streakNumber: { fontSize: 48, color: "#fff", fontFamily: "Inter-Bold" },
   streakUnit: { fontSize: 14, color: "#64748b" },
   motivationText: {
     fontSize: 12,
     color: "#fff",
     marginTop: 6,
     textAlign: "center",
+    fontStyle: "italic",
   },
   badgeContainer: {
     alignItems: "center",
     justifyContent: "center",
     padding: 16,
     borderRadius: 12,
-    
+    backgroundColor: "#000",
+    borderWidth: 1,
+    borderColor: "#000",
   },
   badgeImage: {
     width: 100,
     height: 100,
     borderRadius: 50,
     marginBottom: 8,
+    borderWidth: 2,
+    borderColor: "#000000ff",
   },
   badgeText: {
     fontSize: 14,
     color: "#fff",
     textAlign: "center",
+    fontFamily: "Inter-SemiBold",
   },
-  controlsContainer: { alignItems: "center" },
-  startButton: {
-    flexDirection: "row",
-    backgroundColor: "#10b981",
-    padding: 12,
-    borderRadius: 20,
-  },
-  buttonText: { fontSize: 14, color: "#fff", marginLeft: 6 },
-  statsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    backgroundColor: "rgba(30, 41, 59, 0.3)",
-    borderRadius: 12,
-    padding: 12,
-  },
-  statItem: { alignItems: "center", flex: 1 },
-  statValue: { fontSize: 18, color: "#fff" },
-  statLabel: { fontSize: 10, color: "#64748b" },
-  statDivider: { width: 1, backgroundColor: "rgba(100, 116, 139, 0.2)" },
 });

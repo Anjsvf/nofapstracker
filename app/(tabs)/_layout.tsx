@@ -1,5 +1,5 @@
-import { Tabs, usePathname } from 'expo-router';
-import { MessageCircle, Timer, Trophy, User } from 'lucide-react-native';
+ import { Tabs, usePathname } from 'expo-router';
+import { MessageCircle, RotateCcw, Smile, Timer, Trophy, User } from 'lucide-react-native';
 import { Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -48,10 +48,24 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="mood"
+        options={{
+          title: 'Humor',
+          tabBarIcon: ({ size, color }) => <Smile size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="chat"
         options={{
           title: 'Chat',
           tabBarIcon: ({ size, color }) => <MessageCircle size={size} color={color} />,
+        }}
+      />
+       <Tabs.Screen
+        name="ResetsScreen"
+        options={{
+          title: 'resets',
+          tabBarIcon: ({ size, color }) => <RotateCcw size={size} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -61,6 +75,7 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => <User size={size} color={color} />,
         }}
       />
+      
     </Tabs>
   );
 }
@@ -80,3 +95,4 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
 });
+
