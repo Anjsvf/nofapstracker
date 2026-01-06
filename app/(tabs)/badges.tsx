@@ -1,6 +1,7 @@
 import { BadgeCard } from '@/components/badges/BadgeCard';
 import { BadgeModal } from '@/components/badges/BadgeModal';
 import { BADGE_CATEGORIES } from '@/constants/badges';
+import { useYandexAds } from '@/hooks/useYandexAds';
 import { BadgeService } from '@/services/badgeService';
 import { StorageService } from '@/services/storageService';
 import { Badge } from '@/types';
@@ -15,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { YandexBanner } from '../components/ads/andexBanner';
 
 export default function BadgesScreen() {
   const insets = useSafeAreaInsets();
@@ -23,9 +25,18 @@ export default function BadgesScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Inicializar Yandex Ads
+  const { isInitialized, error } = useYandexAds();
+
   useEffect(() => {
     loadCurrentStreak();
   }, []);
+
+  useEffect(() => {
+    if (error) {
+      console.error('Erro ao inicializar Yandex Ads:', error);
+    }
+  }, [error]);
 
   const loadCurrentStreak = useCallback(async () => {
     try {
@@ -68,7 +79,6 @@ export default function BadgesScreen() {
           isCurrent={isCurrent}
           currentStreak={currentStreak}
           onPress={() => openBadgeModal(badge)}
-          
         />
       );
     },
@@ -81,7 +91,7 @@ export default function BadgesScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-     
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>🏆 Conquistas</Text>
         <Text style={styles.subtitle}>
@@ -89,7 +99,7 @@ export default function BadgesScreen() {
         </Text>
       </View>
 
-     
+      {/* Stats */}
       <View style={styles.statsContainer}>
         <View style={styles.statsCard}>
           <View style={styles.statItem}>
@@ -104,7 +114,14 @@ export default function BadgesScreen() {
         </View>
       </View>
 
-      
+      {/* Banner Yandex - Posição 1: Após Stats */}
+      {isInitialized && (
+        <View style={styles.bannerContainer}>
+          <YandexBanner adUnitId="R-M-17805543-1" />
+        </View>
+      )}
+
+      {/* Current Badge */}
       <View style={styles.currentBadgeContainer}>
         <Text style={styles.currentBadgeLabel}>Conquista Atual</Text>
         {currentBadge ? (
@@ -129,7 +146,7 @@ export default function BadgesScreen() {
           </TouchableOpacity>
         ) : (
           <View style={styles.noBadgeCard}>
-            <Text style={styles.noBadgeText}> Comece sua jornada!</Text>
+            <Text style={styles.noBadgeText}>🎯 Comece sua jornada!</Text>
             <Text style={styles.noBadgeSubtext}>
               Complete sua primeira sessão para desbloquear badges
             </Text>
@@ -137,7 +154,7 @@ export default function BadgesScreen() {
         )}
       </View>
 
-     
+      {/* Scroll Content */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
@@ -176,7 +193,7 @@ export default function BadgesScreen() {
           );
         })}
 
-       
+        {/* Footer */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             Continue praticando para desbloquear mais badges! 💪
@@ -201,7 +218,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   
- 
+  // Header
   header: {
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -260,6 +277,17 @@ const styles = StyleSheet.create({
     width: 1,
     height: 30,
     backgroundColor: 'rgba(100, 116, 139, 0.3)',
+  },
+
+  // Banner Containers
+  bannerContainer: {
+    marginVertical: 12,
+    paddingHorizontal: 20,
+  },
+  bannerContainerBottom: {
+    marginTop: 24,
+    marginBottom: 16,
+    paddingHorizontal: 20,
   },
 
   // Current Badge

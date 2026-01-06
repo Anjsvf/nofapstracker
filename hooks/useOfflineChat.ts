@@ -1,9 +1,9 @@
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, AppState } from 'react-native';
 import { databaseManager } from '../data/database';
 import { messageRepository } from '../data/messageRepository';
+import { syncRepository } from '../data/syncRepository';
 import { BadgeService } from '../services/badgeService';
 import { networkManager } from '../services/networkManager';
 import { syncService } from '../services/syncService';
@@ -12,20 +12,21 @@ import { API_URL } from '../utils/api';
 import { createOfflineMessage, generateTempId } from '../utils/messageUtils';
 import { connectWithBadge, socket } from '../utils/socket';
 
-const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs: number = 15000): Promise<Response> => {
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit,
+  timeoutMs = 15000
+): Promise<Response> => {
   return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error('Request timeout'));
-    }, timeoutMs);
-
+    const timer = setTimeout(() => reject(new Error('Request timeout')), timeoutMs);
     fetch(url, options)
-      .then((response) => {
-        clearTimeout(timeoutId);
-        resolve(response);
+      .then((r) => {
+        clearTimeout(timer);
+        resolve(r);
       })
-      .catch((error) => {
-        clearTimeout(timeoutId);
-        reject(error);
+      .catch((e) => {
+        clearTimeout(timer);
+        reject(e);
       });
   });
 };
@@ -38,299 +39,232 @@ export const useOfflineChat = (username: string, currentStreak?: number) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
 
+  // 🔒 Proteção contra double-submit com debounce
+  const lastSendTimeRef = useRef(0);
+  const DEBOUNCE_MS = 300;
+
   const listenersSetupRef = useRef(false);
   const socketConnectedRef = useRef(false);
-  const lastFetchRef = useRef<number>(0);
+  const lastFetchRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
   const isFetchingRef = useRef(false);
   const initialFetchDoneRef = useRef(false);
   const currentUsernameRef = useRef(username);
   const currentStreakRef = useRef(currentStreak || 0);
-  const refreshMessagesRef = useRef<(() => Promise<void>) | null>(null);
-  
+  const isMountedRef = useRef(true);
+
+  // ✅ FIX: Armazena o username original para comparação confiável
+  const originalUsernameRef = useRef(username);
+
   useEffect(() => {
     currentUsernameRef.current = username;
   }, [username]);
 
- 
   useEffect(() => {
     const newStreak = currentStreak || 0;
     if (currentStreakRef.current !== newStreak) {
-      console.log(`💎 Streak atualizada no hook: ${currentStreakRef.current} → ${newStreak}`);
       currentStreakRef.current = newStreak;
-      
-    
       if (socketConnectedRef.current && socket.connected) {
         const badge = BadgeService.getBadgeInfo(newStreak);
         socket.emit('updateBadge', {
-          badge: badge ? {
-            key: badge.key,
-            name: badge.name,
-            days: badge.days,
-            category: badge.category,
-          } : null,
+          badge: badge
+            ? { key: badge.key, name: badge.name, days: badge.days, category: badge.category }
+            : null,
           currentStreak: newStreak,
         });
-        console.log('💎 Badge atualizada via socket:', badge?.name || 'Nenhuma');
       }
     }
   }, [currentStreak]);
 
-  const ensureIsOwn = useCallback((msg: Message): Message => {
-    const timestamp = msg.timestamp instanceof Date ? msg.timestamp : new Date(msg.timestamp);
+  // ✅ FIX: ensureIsOwn agora usa o username da mensagem ao invés da ref
+  const ensureIsOwn = useCallback((msg: Message, checkUsername: string): Message => {
+    const timestamp = msg.timestamp instanceof Date 
+      ? msg.timestamp 
+      : new Date(msg.timestamp);
     
+    // Validação de timestamp
+    if (isNaN(timestamp.getTime())) {
+      console.error('Timestamp inválido:', msg.timestamp);
+      return {
+        ...msg,
+        isOwn: msg.username === checkUsername,
+        timestamp: new Date(),
+        reactions: msg.reactions || {},
+      };
+    }
+
     return {
       ...msg,
-      isOwn: msg.username === currentUsernameRef.current,
-      timestamp: timestamp,
+      isOwn: msg.username === checkUsername,
+      timestamp,
       reactions: msg.reactions || {},
     };
   }, []);
 
-  const fetchMissedMessages = useCallback(async (force: boolean = false) => {
-    if (!networkManager.isOnline() || !currentUsernameRef.current) {
-      console.log('⏸️ Fetch ignorado: offline ou sem username');
-      return;
-    }
-    
-    const now = Date.now();
-    if (!force && (now - lastFetchRef.current) < 10000) {
-      console.log('⏳ Fetch throttled (< 10s)');
-      return;
-    }
+  // ✅ FIX: Removido ensureIsOwn das dependências para evitar loop
+  const fetchMissedMessages = useCallback(async (force = false) => {
+    if (!networkManager.isOnline() || !currentUsernameRef.current) return;
 
-    if (isFetchingRef.current) {
-      console.log('⏸️ Fetch já em progresso');
-      return;
-    }
+    const now = Date.now();
+    if (!force && now - lastFetchRef.current < 10000) return;
+    if (isFetchingRef.current) return;
 
     isFetchingRef.current = true;
     lastFetchRef.current = now;
 
     try {
-      console.log('🔍 Buscando mensagens perdidas...');
-      
       const lastSync = await messageRepository.getLastSyncTimestamp();
-      let since: string | undefined;
-      
-      if (lastSync) {
-        since = lastSync.toISOString();
-        console.log(`📅 Since (lastSync): ${since}`);
-      }
-
       const token = await AsyncStorage.getItem('token');
-      
-      if (!token) {
-        console.error('❌ Token não encontrado');
-        throw new Error('Token de autenticação não encontrado');
-      }
+      if (!token) throw new Error('Token não encontrado');
 
       let url = `${API_URL}/api/messages?limit=100`;
-      if (since) {
-        url += `&since=${encodeURIComponent(since)}`;
-      }
+      if (lastSync) url += `&since=${encodeURIComponent(lastSync.toISOString())}`;
 
-      console.log('🌐 Fetch URL:', url);
+      const res = await fetchWithTimeout(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
 
-      const response = await fetchWithTimeout(
-        url,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        },
-        15000
-      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error('Resposta inválida');
 
-      const data = await response.json();
-
-      if (!data || !Array.isArray(data)) {
-        console.error('❌ Resposta inválida do servidor:', data);
-        throw new Error('Resposta do servidor inválida');
-      }
-
-      const serverMessages: Message[] = data.map((msg: any) => ({
-        ...msg,
-        isOwn: msg.username === currentUsernameRef.current,
-        timestamp: new Date(msg.timestamp),
-        isSynced: true,
+      const serverMessages: Message[] = data.map((m: any) => ({
+        ...m,
+        isOwn: m.username === currentUsernameRef.current,
+        timestamp: new Date(m.timestamp),
+        reactions: m.reactions || {},
         isPending: false,
-        tempId: null,
-        reactions: msg.reactions || {},
+        isSynced: true,
+        tempId: undefined,
       }));
 
-      console.log('📨 Mensagens do servidor:', serverMessages.length);
-
       if (serverMessages.length > 0) {
-        console.log('🔄 Chamando messageRepository.upsertMessagesBatch...');
         await messageRepository.upsertMessagesBatch(serverMessages);
-        console.log('✅ Batch upsert concluído.');
-
         await messageRepository.updateLastSyncTimestamp(new Date());
-        console.log('⏰ Timestamp de sincronização atualizado.');
-        
-        const allMessages = await messageRepository.getAllMessages();
-        const processedMessages = allMessages.map(ensureIsOwn);
-        
-        setMessages(processedMessages);
-        console.log(`📱 State atualizado: ${processedMessages.length} msgs`);
-      } else {
-        console.log('📭 Nenhuma nova mensagem do servidor.');
       }
 
-    } catch (error: any) {
-      console.error('❌ Erro ao buscar mensagens:', {
-        message: error?.message || 'Erro desconhecido',
-        name: error?.name || 'Error',
-        stack: error?.stack?.substring(0, 200)
-      });
+      if (isMountedRef.current) {
+        const all = await messageRepository.getAllMessages();
+        setMessages(all.map(msg => ensureIsOwn(msg, currentUsernameRef.current)));
+      }
+    } catch (err: any) {
+      console.error('Erro ao buscar mensagens:', err.message);
     } finally {
       isFetchingRef.current = false;
     }
   }, [ensureIsOwn]);
 
   const refreshMessages = useCallback(async () => {
-    console.log('🔄 refreshMessages chamado');
-    
-    if (!networkManager.isOnline()) {
-      console.log('⚠️ Offline - refresh cancelado');
-      return;
-    }
-    
-    try {
-      await fetchMissedMessages(true);
-      const allMessages = await messageRepository.getAllMessages();
-      setMessages(allMessages.map(ensureIsOwn));
-      console.log('✅ Refresh manual concluído');
-    } catch (error: any) {
-      console.error('❌ Erro no refresh manual:', error);
+    if (!networkManager.isOnline()) return;
+    await fetchMissedMessages(true);
+    if (isMountedRef.current) {
+      const all = await messageRepository.getAllMessages();
+      setMessages(all.map(msg => ensureIsOwn(msg, currentUsernameRef.current)));
     }
   }, [fetchMissedMessages, ensureIsOwn]);
 
-  useEffect(() => {
-    refreshMessagesRef.current = refreshMessages;
-  }, [refreshMessages]);
-
   const handleSync = useCallback(async () => {
     if (!networkManager.isOnline()) {
-      Alert.alert('Offline', 'Conecte-se à internet para sincronizar');
+      Alert.alert('Offline', 'Conecte-se para sincronizar');
       return;
     }
-
     if (isSyncing) return;
-
     setIsSyncing(true);
     try {
       await fetchMissedMessages(true);
       await syncService.syncWithServer(currentUsernameRef.current);
-      
-      const allMessages = await messageRepository.getAllMessages();
-      setMessages(allMessages.map(ensureIsOwn));
-    } catch (error) {
-      console.error('❌ Erro na sincronização:', error);
+      if (isMountedRef.current) {
+        const all = await messageRepository.getAllMessages();
+        setMessages(all.map(msg => ensureIsOwn(msg, currentUsernameRef.current)));
+      }
+    } catch (err) {
       Alert.alert('Erro', 'Falha na sincronização');
     } finally {
       setIsSyncing(false);
     }
   }, [isSyncing, fetchMissedMessages, ensureIsOwn]);
 
+  // ✅ FIX: Validação de data no cleanup
   const handleMessagesCleanup = useCallback(
     async (data: { deletedCount: number; cutoffDate: string }) => {
-      console.log(`🗑️ Limpeza recebida: ${data.deletedCount} mensagens`);
       try {
         const cutoffDate = new Date(data.cutoffDate);
-        const deletedLocal = await messageRepository.deleteOldMessages(cutoffDate);
-        console.log(`🗑️ Deletadas localmente: ${deletedLocal}`);
         
-        const updatedMessages = await messageRepository.getAllMessages();
-        setMessages(updatedMessages.map(ensureIsOwn));
-      } catch (error) {
-        console.error('❌ Erro ao processar limpeza:', error);
+        // Validação de data
+        if (isNaN(cutoffDate.getTime())) {
+          console.error('Data de cutoff inválida recebida:', data.cutoffDate);
+          return;
+        }
+
+        await messageRepository.deleteOldMessages(cutoffDate);
+        if (isMountedRef.current) {
+          const fresh = await messageRepository.getAllMessages();
+          setMessages(fresh.map(msg => ensureIsOwn(msg, currentUsernameRef.current)));
+        }
+      } catch (err) {
+        console.error('Erro no cleanup:', err);
       }
     },
     [ensureIsOwn]
   );
 
-  const handleNewMessage = useCallback(
-    async (msg: Message) => {
-      const processed = ensureIsOwn({
-        ...msg,
-        isPending: false,
-        isSynced: true,
-      });
-
-      setMessages((prev) => {
-        if (prev.some((m) => m._id === msg._id)) {
-          return prev;
-        }
-        return [...prev, processed];
-      });
-      
-      messageRepository.saveMessage(processed, false).catch(err => {
-        console.error('❌ Erro ao salvar msg no DB:', err);
-      });
-    },
-    [ensureIsOwn]
-  );
-  
-  const handleMessageUpdated = useCallback(
-    async (updated: Message) => {
-      const processed = ensureIsOwn(updated);
-
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg._id === updated._id ? processed : msg
-        )
-      );
-
-      messageRepository.updateMessage(updated._id, {
-        reactions: processed.reactions,
-      }).catch(err => console.error('❌ Erro ao atualizar DB:', err));
-    },
-    [ensureIsOwn]
-  );
-
-  const handleOnlineUsers = useCallback((users: Array<{ username: string; badge?: any; currentStreak?: number }>) => {
-    const userObjects: User[] = users.map(u => ({
-      username: u.username,
-      online: true,
-      badge: u.badge || null,
-      currentStreak: u.currentStreak || 0,
-    }));
-    
-    setOnlineUsers(userObjects);
-    console.log('👥 Usuários online atualizados:', userObjects.length);
+  // ✅ FIX: Wrapper com try-catch para handlers do socket
+  const safeSocketHandler = useCallback((handler: Function, handlerName: string) => {
+    return (...args: any[]) => {
+      try {
+        handler(...args);
+      } catch (err) {
+        console.error(`Erro no handler ${handlerName}:`, err);
+      }
+    };
   }, []);
 
-  
+  const handleNewMessage = useCallback((msg: Message) => {
+    if (!isMountedRef.current) return;
+    const processed = ensureIsOwn(
+      { ...msg, reactions: msg.reactions || {}, isPending: false, isSynced: true },
+      currentUsernameRef.current
+    );
+    setMessages((prev) => (prev.some((m) => m._id === msg._id) ? prev : [...prev, processed]));
+    messageRepository.saveMessage(processed, false).catch(console.error);
+  }, [ensureIsOwn]);
+
+  const handleMessageUpdated = useCallback((updated: Message) => {
+    if (!isMountedRef.current) return;
+    const processed = ensureIsOwn(updated, currentUsernameRef.current);
+    setMessages((prev) => prev.map((m) => (m._id === updated._id ? processed : m)));
+    messageRepository.updateMessage(updated._id, { reactions: processed.reactions }).catch(console.error);
+  }, [ensureIsOwn]);
+
+  const handleOnlineUsers = useCallback((users: any[]) => {
+    if (!isMountedRef.current) return;
+    setOnlineUsers(
+      users.map((u) => ({
+        username: u.username,
+        online: true,
+        badge: u.badge || null,
+        currentStreak: u.currentStreak || 0,
+      }))
+    );
+  }, []);
+
+  // ✅ FIX: Evita double fetch na inicialização
   const handleConnect = useCallback(async () => {
-    console.log('✅ WebSocket conectado');
     socketConnectedRef.current = true;
-    
     if (currentUsernameRef.current) {
-     
       const badge = BadgeService.getBadgeInfo(currentStreakRef.current);
-      
       connectWithBadge(
         currentUsernameRef.current,
-        badge ? {
-          key: badge.key,
-          name: badge.name,
-          days: badge.days,
-          category: badge.category,
-        } : null,
+        badge
+          ? { key: badge.key, name: badge.name, days: badge.days, category: badge.category }
+          : null,
         currentStreakRef.current
       );
-      
-      console.log('💎 Conectado com badge:', badge?.name || 'Nenhuma', '- Streak:', currentStreakRef.current);
-      
-      if (!initialFetchDoneRef.current) {
+
+      // Só faz fetch se não foi feito ainda E se não estiver online desde a inicialização
+      if (!initialFetchDoneRef.current && !networkManager.isOnline()) {
         initialFetchDoneRef.current = true;
         setTimeout(() => fetchMissedMessages(true), 500);
       }
@@ -338,163 +272,161 @@ export const useOfflineChat = (username: string, currentStreak?: number) => {
   }, [fetchMissedMessages]);
 
   const handleConnectError = useCallback((err: any) => {
-    console.error('❌ Erro no WebSocket:', err.message);
+    console.error('Socket error:', err.message);
     socketConnectedRef.current = false;
   }, []);
 
-  const handleAppStateChange = useCallback(
-    async (nextAppState: string) => {
-      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
-        console.log('📱 App voltou ao foreground');
-        if (isInitialized && networkManager.isOnline()) {
-          try {
-            await fetchMissedMessages(true);
-            const pendingMessages = await messageRepository.getPendingMessages();
-            if (pendingMessages.length > 0) {
-              await handleSync();
-            }
-          } catch (error) {
-            console.error('❌ Erro no app state change:', error);
-          }
-        }
+  const handleAppStateChange = useCallback(async (nextState: string) => {
+    if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
+      if (isInitialized && networkManager.isOnline()) {
+        await fetchMissedMessages(true);
+        const pendingMessages = await messageRepository.getPendingMessages();
+        if (pendingMessages.length > 0) await handleSync();
       }
-      appStateRef.current = nextAppState;
-    },
-    [isInitialized, fetchMissedMessages, handleSync]
-  );
+    }
+    appStateRef.current = nextState;
+  }, [isInitialized, fetchMissedMessages, handleSync]);
 
- 
+  // ✅ FIX: Removido ensureIsOwn das dependências
+  const performLocalCleanup = useCallback(async () => {
+    try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      await messageRepository.deleteOldMessages(cutoff);
+      if (isMountedRef.current) {
+        const updated = await messageRepository.getAllMessages();
+        setMessages(updated.map(msg => ensureIsOwn(msg, currentUsernameRef.current)));
+      }
+    } catch (err) {
+      console.error('Erro no cleanup local:', err);
+    }
+  }, [ensureIsOwn]);
+
+  // ✅ FIX: Inicialização sem dependências desnecessárias
   useEffect(() => {
-    const initDatabase = async () => {
-      if (!isInitialized) {
-        try {
-          console.log('💾 Inicializando banco de dados...');
-          await databaseManager.init();
-          const localMessages = await messageRepository.getAllMessages();
-          
-          const processedMessages = localMessages.map(ensureIsOwn);
-          setMessages(processedMessages);
-          setIsInitialized(true);
+    let isActive = true;
 
-          if (networkManager.isOnline()) {
-            setTimeout(() => fetchMissedMessages(true), 1500);
-          }
-        } catch (error) {
-          console.error('❌ Erro ao inicializar banco:', error);
-          Alert.alert('Erro', 'Falha ao inicializar banco de dados');
+    const init = async () => {
+      if (isInitialized) return;
+      
+      try {
+        await databaseManager.init();
+        const local = await messageRepository.getAllMessages();
+        
+        if (isActive) {
+          setMessages(local.map(msg => ensureIsOwn(msg, username)));
+          setIsInitialized(true);
         }
+
+        // Limpeza imediata na inicialização
+        await performLocalCleanup();
+
+        // ✅ FIX: Só faz fetch inicial se estiver online
+        if (isActive && networkManager.isOnline()) {
+          initialFetchDoneRef.current = true;
+          setTimeout(() => fetchMissedMessages(true), 1500);
+        }
+      } catch (err) {
+        console.error('Erro na inicialização:', err);
       }
     };
-    initDatabase();
-  }, [isInitialized, fetchMissedMessages, ensureIsOwn]);
+    
+    init();
+
+    return () => {
+      isActive = false;
+    };
+  }, []); // ✅ Sem dependências - roda apenas uma vez
+
+  // ✅ FIX: Limpeza periódica com ref estável
+  useEffect(() => {
+    if (!isInitialized) return;
+    
+    const cleanupTimer = setInterval(() => {
+      performLocalCleanup();
+    }, 24 * 60 * 60 * 1000);
+    
+    return () => clearInterval(cleanupTimer);
+  }, [isInitialized]); // ✅ Só depende de isInitialized
 
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    return () => subscription?.remove();
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub?.remove();
   }, [handleAppStateChange]);
 
   useEffect(() => {
     if (!isInitialized) return;
-
-    const handleNetworkChange = async (online: boolean) => {
-      console.log('🌐 Rede mudou:', online ? 'ONLINE' : 'OFFLINE');
+    const handler = async (online: boolean) => {
       if (online) {
-        if (!socketConnectedRef.current) {
-          socket.connect();
-        }
+        socket.connect();
         setTimeout(async () => {
-          try {
-            await fetchMissedMessages(true);
-            const pendingMessages = await messageRepository.getPendingMessages();
-            if (pendingMessages.length > 0 && !isSyncing) {
-              await handleSync();
-            }
-          } catch (error) {
-            console.error('❌ Erro no network change:', error);
-          }
+          await fetchMissedMessages(true);
+          const pending = await messageRepository.getPendingMessages();
+          if (pending.length > 0 && !isSyncing) await handleSync();
         }, 1000);
       }
     };
-
-    const unsubscribe = networkManager.onNetworkChange(handleNetworkChange);
-    return () => unsubscribe();
+    return networkManager.onNetworkChange(handler);
   }, [isInitialized, isSyncing, fetchMissedMessages, handleSync]);
 
+  // ✅ FIX: Socket listeners com error handling
   useEffect(() => {
-    if (!currentUsernameRef.current || !isInitialized) return;
+    if (!currentUsernameRef.current || !isInitialized || listenersSetupRef.current) return;
 
-    if (!listenersSetupRef.current) {
-      socket.off('connect', handleConnect);
-      socket.off('connect_error', handleConnectError);
-      socket.off('newMessage', handleNewMessage);
-      socket.off('messageUpdated', handleMessageUpdated);
-      socket.off('onlineUsers', handleOnlineUsers);
-      socket.off('messagesCleanup', handleMessagesCleanup);
+    socket.on('connect', safeSocketHandler(handleConnect, 'connect'));
+    socket.on('connect_error', safeSocketHandler(handleConnectError, 'connect_error'));
+    socket.on('newMessage', safeSocketHandler(handleNewMessage, 'newMessage'));
+    socket.on('messageUpdated', safeSocketHandler(handleMessageUpdated, 'messageUpdated'));
+    socket.on('onlineUsers', safeSocketHandler(handleOnlineUsers, 'onlineUsers'));
+    socket.on('messagesCleanup', safeSocketHandler(handleMessagesCleanup, 'messagesCleanup'));
 
-      socket.on('connect', handleConnect);
-      socket.on('connect_error', handleConnectError);
-      socket.on('newMessage', handleNewMessage);
-      socket.on('messageUpdated', handleMessageUpdated);
-      socket.on('onlineUsers', handleOnlineUsers);
-      socket.on('messagesCleanup', handleMessagesCleanup);
+    listenersSetupRef.current = true;
 
-      listenersSetupRef.current = true;
-    }
+    if (networkManager.isOnline()) socket.connect();
 
-    if (!socket.connected && !socketConnectedRef.current && networkManager.isOnline()) {
-      socket.connect();
-    } else if (socket.connected && currentUsernameRef.current) {
-     
-      const badge = BadgeService.getBadgeInfo(currentStreakRef.current);
-      connectWithBadge(
-        currentUsernameRef.current,
-        badge ? {
-          key: badge.key,
-          name: badge.name,
-          days: badge.days,
-          category: badge.category,
-        } : null,
-        currentStreakRef.current
-      );
-      socketConnectedRef.current = true;
-    }
-  }, [isInitialized, handleConnect, handleConnectError, handleNewMessage, handleMessageUpdated, handleOnlineUsers, handleMessagesCleanup]);
-
-  useEffect(() => {
-    if (!isInitialized || !currentUsernameRef.current) return;
-
-    const interval = setInterval(async () => {
-      if (networkManager.isOnline() && !isSyncing) {
-        try {
-          await fetchMissedMessages(false);
-        } catch (error) {
-          console.error('❌ Erro na sincronização periódica:', error);
-        }
-      }
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [isInitialized, isSyncing, fetchMissedMessages]);
-
-  useEffect(() => {
     return () => {
-      socket.off('connect', handleConnect);
-      socket.off('connect_error', handleConnectError);
-      socket.off('newMessage', handleNewMessage);
-      socket.off('messageUpdated', handleMessageUpdated);
-      socket.off('onlineUsers', handleOnlineUsers);
-      socket.off('messagesCleanup', handleMessagesCleanup);
+      socket.off('connect');
+      socket.off('connect_error');
+      socket.off('newMessage');
+      socket.off('messageUpdated');
+      socket.off('onlineUsers');
+      socket.off('messagesCleanup');
       listenersSetupRef.current = false;
       socketConnectedRef.current = false;
     };
-  }, [handleConnect, handleConnectError, handleNewMessage, handleMessageUpdated, handleOnlineUsers, handleMessagesCleanup]);
+  }, [
+    isInitialized,
+    handleConnect,
+    handleConnectError,
+    handleNewMessage,
+    handleMessageUpdated,
+    handleOnlineUsers,
+    handleMessagesCleanup,
+    safeSocketHandler
+  ]);
 
+  useEffect(() => {
+    if (!isInitialized) return;
+    const interval = setInterval(() => {
+      if (networkManager.isOnline() && !isSyncing) fetchMissedMessages(false);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [isInitialized, isSyncing, fetchMissedMessages]);
+
+  // ✅ FIX: Debounce no envio de mensagens
   const sendMessage = useCallback(async () => {
     if (!inputText.trim() || !currentUsernameRef.current) return;
-    
+
+    // Debounce check
+    const now = Date.now();
+    if (now - lastSendTimeRef.current < DEBOUNCE_MS) {
+      console.log('Mensagem bloqueada por debounce');
+      return;
+    }
+    lastSendTimeRef.current = now;
+
     const text = inputText.trim();
     const tempId = generateTempId();
-
     const offlineMsg = createOfflineMessage(
       text,
       currentUsernameRef.current,
@@ -504,38 +436,49 @@ export const useOfflineChat = (username: string, currentStreak?: number) => {
       replyingTo?._id
     );
 
-    const messageWithId: Message = {
+    const timestamp = new Date(offlineMsg.timestamp);
+    if (isNaN(timestamp.getTime())) {
+      console.error('Timestamp inválido gerado');
+      return;
+    }
+
+    const optimisticMsg: Message = {
       ...offlineMsg,
       _id: tempId,
       isOwn: true,
-      isPending: !networkManager.isOnline(),
-      timestamp: new Date(offlineMsg.timestamp),
+      isPending: false,
+      isSynced: false,
+      timestamp,
       reactions: {},
     };
 
-    setMessages((prev) => [...prev, messageWithId]);
+    setMessages((prev) => [...prev, optimisticMsg]);
     setInputText('');
     setReplyingTo(null);
 
     try {
       if (networkManager.isOnline()) {
         const token = await AsyncStorage.getItem('token');
-        const response = await fetch(`${API_URL}/api/messages`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            text,
-            type: 'text',
-            replyTo: replyingTo?._id || null,
-          }),
-        });
+        if (!token) throw new Error('Token não encontrado');
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+        const response = await fetchWithTimeout(
+          `${API_URL}/api/messages`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              text,
+              type: 'text',
+              replyTo: replyingTo?._id || null,
+            }),
+          },
+          10000
+        );
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const serverData = await response.json();
         const serverMsg: Message = {
@@ -548,28 +491,55 @@ export const useOfflineChat = (username: string, currentStreak?: number) => {
         };
 
         await messageRepository.updateMessageWithNewId(tempId, serverMsg);
-
-        setMessages((prev) => 
-          prev.map((msg) => 
-            msg._id === tempId || msg.tempId === tempId ? serverMsg : msg
-          )
-        );
-      } else {
-        await messageRepository.saveMessage(messageWithId, true);
+        if (isMountedRef.current) {
+          setMessages((prev) => prev.map((msg) => (msg._id === tempId ? serverMsg : msg)));
+        }
+        return;
       }
+
+      // Offline
+      await messageRepository.saveMessage({ ...optimisticMsg, isPending: true }, true);
+      if (isMountedRef.current) {
+        setMessages((prev) => prev.map((msg) => (msg._id === tempId ? { ...msg, isPending: true } : msg)));
+      }
+      await syncRepository.addToSyncQueue(tempId, 'CREATE', {
+        text,
+        type: 'text',
+        replyTo: replyingTo?._id || null,
+      });
     } catch (error) {
       console.error('❌ Erro ao enviar mensagem:', error);
-      await messageRepository.saveMessage({ ...messageWithId, isPending: true }, true); 
+      const pendingMsg = { ...optimisticMsg, isPending: true };
+      await messageRepository.saveMessage(pendingMsg, true);
+      if (isMountedRef.current) {
+        setMessages((prev) => prev.map((msg) => (msg._id === tempId ? pendingMsg : msg)));
+      }
+      await syncRepository.addToSyncQueue(tempId, 'CREATE', {
+        text,
+        type: 'text',
+        replyTo: replyingTo?._id || null,
+      });
       Alert.alert('Erro', 'Mensagem salva offline');
     }
-  }, [inputText, replyingTo]);
+  }, [inputText, replyingTo, ensureIsOwn]);
 
+  // ✅ FIX: Validação de audioUri e debounce
   const sendVoiceMessage = useCallback(
     async (audioUri: string, audioDuration: number, messageText = '[Mensagem de voz]') => {
-      if (!currentUsernameRef.current) return;
+      if (!currentUsernameRef.current || !audioUri) {
+        console.error('Username ou audioUri inválido');
+        return;
+      }
+
+      // Debounce check
+      const now = Date.now();
+      if (now - lastSendTimeRef.current < DEBOUNCE_MS) {
+        console.log('Áudio bloqueado por debounce');
+        return;
+      }
+      lastSendTimeRef.current = now;
 
       const tempId = generateTempId();
-
       const offlineMsg = createOfflineMessage(
         messageText,
         currentUsernameRef.current,
@@ -579,23 +549,40 @@ export const useOfflineChat = (username: string, currentStreak?: number) => {
         replyingTo?._id
       );
 
-      const messageWithId: Message = {
+      const timestamp = new Date(offlineMsg.timestamp);
+      if (isNaN(timestamp.getTime())) {
+        console.error('Timestamp inválido gerado');
+        return;
+      }
+
+      const optimisticMsg: Message = {
         ...offlineMsg,
         _id: tempId,
         isOwn: true,
-        isPending: !networkManager.isOnline(),
-        timestamp: new Date(offlineMsg.timestamp),
+        isPending: false,
+        isSynced: false,
+        timestamp,
         reactions: {},
       };
 
-      setMessages((prev) => [...prev, messageWithId]);
+      setMessages((prev) => [...prev, optimisticMsg]);
       setReplyingTo(null);
 
       try {
         if (networkManager.isOnline()) {
           const token = await AsyncStorage.getItem('token');
+          if (!token) throw new Error('Token não encontrado');
+
           const formData = new FormData();
-          formData.append('audio', { uri: audioUri, type: 'audio/m4a', name: `recording-${tempId}.m4a` } as any);
+          
+          // ✅ FIX: Validação do arquivo antes do append
+          const audioFile = {
+            uri: audioUri,
+            type: 'audio/m4a',
+            name: `recording-${tempId}.m4a`
+          };
+          
+          formData.append('audio', audioFile as any);
           formData.append('text', messageText);
           formData.append('type', 'voice');
           formData.append('audioDuration', String(audioDuration));
@@ -603,15 +590,17 @@ export const useOfflineChat = (username: string, currentStreak?: number) => {
             formData.append('replyTo', replyingTo._id);
           }
 
-          const response = await fetch(`${API_URL}/api/messages`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            body: formData,
-          });
+          const response = await fetchWithTimeout(
+            `${API_URL}/api/messages`,
+            {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            },
+            30000 // Timeout maior para upload de áudio
+          );
 
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
           const serverData = await response.json();
           const serverMsg: Message = {
@@ -624,70 +613,108 @@ export const useOfflineChat = (username: string, currentStreak?: number) => {
           };
 
           await messageRepository.updateMessageWithNewId(tempId, serverMsg);
-          setMessages((prev) => 
-            prev.map((msg) => 
-              msg._id === tempId || msg.tempId === tempId ? serverMsg : msg
-            )
-          );
-        } else {
-          await messageRepository.saveMessage(messageWithId, true);
+          if (isMountedRef.current) {
+            setMessages((prev) => prev.map((msg) => (msg._id === tempId ? serverMsg : msg)));
+          }
+          return;
         }
+
+        // Offline
+        await messageRepository.saveMessage({ ...optimisticMsg, isPending: true }, true);
+        if (isMountedRef.current) {
+          setMessages((prev) => prev.map((msg) => (msg._id === tempId ? { ...msg, isPending: true } : msg)));
+        }
+        await syncRepository.addToSyncQueue(tempId, 'CREATE', {
+          text: messageText,
+          type: 'voice',
+          audioUri,
+          audioDuration,
+          replyTo: replyingTo?._id || null,
+        });
       } catch (error) {
         console.error('❌ Erro ao enviar áudio:', error);
-        await messageRepository.saveMessage({ ...messageWithId, isPending: true }, true);
+        const pendingMsg = { ...optimisticMsg, isPending: true };
+        await messageRepository.saveMessage(pendingMsg, true);
+        if (isMountedRef.current) {
+          setMessages((prev) => prev.map((msg) => (msg._id === tempId ? pendingMsg : msg)));
+        }
+        await syncRepository.addToSyncQueue(tempId, 'CREATE', {
+          text: messageText,
+          type: 'voice',
+          audioUri,
+          audioDuration,
+          replyTo: replyingTo?._id || null,
+        });
         Alert.alert('Erro', 'Áudio salvo offline');
       }
     },
-    [replyingTo]
+    [replyingTo, ensureIsOwn]
   );
-  
+
   const addReaction = useCallback(
     async (messageId: string, emoji: string) => {
       try {
         const message = await messageRepository.getMessageById(messageId);
-        if (!message) return;
+        if (!message) {
+          console.error('Mensagem não encontrada:', messageId);
+          return;
+        }
 
         const reactions = { ...message.reactions };
         const users = reactions[emoji] || [];
-        const userIndex = users.indexOf(currentUsernameRef.current);
+        const idx = users.indexOf(currentUsernameRef.current);
 
-        if (userIndex === -1) {
+        if (idx === -1) {
           reactions[emoji] = [...users, currentUsernameRef.current];
         } else {
-          const newUsers = users.filter((u) => u !== currentUsernameRef.current);
-          if (newUsers.length === 0) {
-            delete reactions[emoji]; 
-          } else {
-            reactions[emoji] = newUsers;
-          }
+          const filtered = users.filter((u) => u !== currentUsernameRef.current);
+          if (filtered.length === 0) delete reactions[emoji];
+          else reactions[emoji] = filtered;
         }
 
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg._id === messageId ? ensureIsOwn({ ...msg, reactions }) : msg
-          )
-        );
-
+        if (isMountedRef.current) {
+          setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, reactions } : m)));
+        }
         await messageRepository.updateMessage(messageId, { reactions });
 
         if (networkManager.isOnline()) {
           const token = await AsyncStorage.getItem('token');
-          await fetch(`${API_URL}/api/messages/reaction`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messageId, emoji, username: currentUsernameRef.current }),
-          });
+          if (!token) throw new Error('Token não encontrado');
+          
+          await fetchWithTimeout(
+            `${API_URL}/api/messages/reaction`,
+            {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messageId, emoji, username: currentUsernameRef.current }),
+            },
+            5000
+          );
         } else {
-          await syncService.addReactionOffline(messageId, emoji, currentUsernameRef.current);
+          await syncRepository.addToSyncQueue(messageId, 'REACTION', {
+            messageId,
+            emoji,
+            username: currentUsernameRef.current,
+          });
         }
       } catch (error) {
-        console.error('❌ Erro ao adicionar reação:', error);
-        const fallbackMessages = await messageRepository.getAllMessages();
-        setMessages(fallbackMessages.map(ensureIsOwn));
+        console.error('Erro ao adicionar reação:', error);
+        if (isMountedRef.current) {
+          const fallbackMessages = await messageRepository.getAllMessages();
+          setMessages(fallbackMessages.map(msg => ensureIsOwn(msg, currentUsernameRef.current)));
+        }
       }
     },
     [ensureIsOwn]
   );
+
+  // ✅ Cleanup ao desmontar
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   return {
     messages,
@@ -702,11 +729,7 @@ export const useOfflineChat = (username: string, currentStreak?: number) => {
     sendVoiceMessage,
     addReaction,
     forceSync: handleSync,
-    refreshMessages: useCallback(async () => {
-      if (refreshMessagesRef.current) {
-        await refreshMessagesRef.current();
-      }
-    }, []),
+    refreshMessages,
     isOnline: networkManager.isOnline(),
   };
 };

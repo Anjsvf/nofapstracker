@@ -1,4 +1,3 @@
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -33,7 +32,8 @@ interface MessagesListProps {
 
 type ReplyToData = Pick<Message, '_id' | 'username' | 'text' | 'type' | 'timestamp'>;
 
-const { height } = Dimensions.get('window');
+const { height: windowHeight } = Dimensions.get('window');
+const NEAR_BOTTOM_THRESHOLD = 150; // pixels de tolerância para considerar "no final"
 
 export const MessagesList: React.FC<MessagesListProps> = ({
   messages,
@@ -55,23 +55,22 @@ export const MessagesList: React.FC<MessagesListProps> = ({
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
   const scrollButtonOpacity = useRef(new Animated.Value(0)).current;
   const shouldAutoScroll = useRef(true);
-  const messagesCount = useRef(0);
-  const isInitialMount = useRef(true);
+  const previousMessagesLength = useRef(messages.length);
   const contentHeight = useRef(0);
-  const scrollViewHeight = useRef(0);
-  const lastSeenMessageCount = useRef(0);
+  const lastContentOffset = useRef(0);
+  const lastSeenMessageCount = useRef(messages.length);
 
-  
   const [offlineBadges, setOfflineBadges] = useState<Record<string, string | null>>({});
   const [loadingBadges, setLoadingBadges] = useState<Set<string>>(new Set());
 
-  
+  // === Badges offline ===
   const offlineUsernames = useMemo(() => {
-    const onlineSet = new Set(onlineUsers.map(u => u.username));
+    const onlineSet = new Set(onlineUsers.map((u) => u.username));
     const authors = new Set<string>();
-    messages.forEach(msg => {
+    messages.forEach((msg) => {
       if (!onlineSet.has(msg.username)) {
         authors.add(msg.username);
       }
@@ -79,34 +78,28 @@ export const MessagesList: React.FC<MessagesListProps> = ({
     return Array.from(authors);
   }, [messages, onlineUsers]);
 
-  
   useEffect(() => {
     const loadBadges = async () => {
       const usernamesToLoad = offlineUsernames.filter(
-        username => offlineBadges[username] === undefined
+        (username) => offlineBadges[username] === undefined
       );
-
       if (usernamesToLoad.length === 0) return;
 
-     
       setLoadingBadges(new Set(usernamesToLoad));
-
-      console.log(`💎 Carregando badges offline para ${usernamesToLoad.length} usuários...`);
 
       const badgePromises = usernamesToLoad.map(async (username) => {
         try {
           const badge = await userBadgeCache.getBadge(username);
           return { username, badgeKey: badge?.key || null };
         } catch (error) {
-          console.error(`❌ Erro ao carregar badge de ${username}:`, error);
+          console.error(`Erro ao carregar badge de ${username}:`, error);
           return { username, badgeKey: null };
         }
       });
 
       const results = await Promise.all(badgePromises);
 
-      // Atualizar estado com todas as badges de uma vez
-      setOfflineBadges(prev => {
+      setOfflineBadges((prev) => {
         const updated = { ...prev };
         results.forEach(({ username, badgeKey }) => {
           updated[username] = badgeKey;
@@ -114,60 +107,39 @@ export const MessagesList: React.FC<MessagesListProps> = ({
         return updated;
       });
 
-      // Remover loading
       setLoadingBadges(new Set());
-
-      console.log(` Badges offline carregadas:`, results.length);
     };
 
     if (offlineUsernames.length > 0) {
       loadBadges().catch(console.error);
     }
-  }, [offlineUsernames]);
+  }, [offlineUsernames, offlineBadges]);
 
- 
   const userBadgeMap = useMemo(() => {
     const map = new Map<string, string | null>();
-
-   
-    onlineUsers.forEach(user => {
+    onlineUsers.forEach((user) => {
       map.set(user.username, user.badge?.key || null);
     });
-
-   
     Object.entries(offlineBadges).forEach(([username, key]) => {
       if (!map.has(username)) {
         map.set(username, key);
       }
     });
-
     return map;
   }, [onlineUsers, offlineBadges]);
 
+  // === Handlers ===
   const handleRefresh = useCallback(async () => {
-    if (!onRefresh) {
-      console.log('⚠️ onRefresh não disponível');
-      return;
-    }
-    if (typeof onRefresh !== 'function') {
-      console.error('❌ onRefresh não é uma função. Tipo:', typeof onRefresh);
-      return;
-    }
+    if (!onRefresh) return;
     try {
-      console.log('🔄 Iniciando pull-to-refresh...');
-      await Promise.resolve(onRefresh());
-      console.log('✅ Pull-to-refresh concluído');
-    } catch (error: any) {
-      console.error('❌ Erro no handleRefresh:', {
-        message: error?.message,
-        name: error?.name,
-        stack: error?.stack?.substring(0, 200),
-      });
+      await onRefresh();
+    } catch (error) {
+      console.error('Erro no pull-to-refresh:', error);
     }
   }, [onRefresh]);
 
   const handleMessageSelection = useCallback((messageId: string) => {
-    setSelectedMessageId(prev => prev === messageId ? null : messageId);
+    setSelectedMessageId((prev) => (prev === messageId ? null : messageId));
   }, []);
 
   const handleClearSelection = useCallback(() => {
@@ -177,78 +149,150 @@ export const MessagesList: React.FC<MessagesListProps> = ({
   const createReplyToData = (msg: Message): ReplyToData => ({
     _id: msg._id,
     username: msg.username,
-    text: msg.text,
+    text: msg.text ?? '',
     type: msg.type,
     timestamp: msg.timestamp,
   });
 
+  // === Resolução de replyTo ===
   const resolvedMessages = useMemo<Message[]>(() => {
     const messageMap = new Map<string, Message>();
-    messages.forEach(msg => {
+    messages.forEach((msg) => {
       messageMap.set(msg._id, msg);
-      if (msg.tempId) {
-        messageMap.set(msg.tempId, msg);
-      }
+      if (msg.tempId) messageMap.set(msg.tempId, msg);
     });
-    return messages.map(message => {
-      if (message.replyTo && typeof message.replyTo === 'object') {
-        return message;
+
+    return messages.map((message) => {
+      if (!message.replyTo) return message;
+      if (typeof message.replyTo === 'object') return message;
+
+      const replyToMessage = messageMap.get(message.replyTo as string);
+      if (replyToMessage) {
+        return { ...message, replyTo: createReplyToData(replyToMessage) };
       }
-      if (message.replyTo && typeof message.replyTo === 'string') {
-        const replyToMessage = messageMap.get(message.replyTo);
-        if (replyToMessage) {
-          return {
-            ...message,
-            replyTo: createReplyToData(replyToMessage),
-          };
-        } else {
-          return {
-            ...message,
-            replyTo: {
-              _id: message.replyTo,
-              username: 'Usuário Desconhecido',
-              text: 'Mensagem não encontrada',
-              type: 'text' as const,
-              timestamp: new Date(),
-            } as ReplyToData,
-          };
-        }
-      }
-      return message;
+
+      return {
+        ...message,
+        replyTo: {
+          _id: message.replyTo as string,
+          username: 'Usuário Desconhecido',
+          text: 'Mensagem não encontrada',
+          type: 'text',
+          timestamp: new Date(),
+        } as ReplyToData,
+      };
     });
   }, [messages]);
 
+  // === Auto-scroll e unread count ===
   useEffect(() => {
-    if (messages.length > 0 && isInitialMount.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: false });
-        isInitialMount.current = false;
-        messagesCount.current = messages.length;
-        lastSeenMessageCount.current = messages.length;
-      }, 100);
+    const newMessagesCount = messages.length;
+    const addedMessages = newMessagesCount - previousMessagesLength.current;
+
+    if (addedMessages > 0 && shouldAutoScroll.current) {
+      // Novas mensagens e usuário estava no final → scroll automático
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+      lastSeenMessageCount.current = newMessagesCount;
+      setUnreadCount(0);
+    } else if (addedMessages > 0 && !shouldAutoScroll.current) {
+      // Usuário estava lendo histórico → aumenta contador de não lidas
+      setUnreadCount((prev) => prev + addedMessages);
     }
+
+    previousMessagesLength.current = newMessagesCount;
   }, [messages.length, scrollViewRef]);
 
+  // Scroll inicial
   useEffect(() => {
-    if (!isInitialMount.current && messages.length > messagesCount.current && shouldAutoScroll.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-        messagesCount.current = messages.length;
-        lastSeenMessageCount.current = messages.length;
-      }, 50);
-    } else if (!isInitialMount.current) {
-      messagesCount.current = messages.length;
-      if (!shouldAutoScroll.current && messages.length > lastSeenMessageCount.current) {
-        setUnreadCount(messages.length - lastSeenMessageCount.current);
-      }
-    }
-  }, [messages.length, scrollViewRef]);
-
-  const handleMessageLayout = useCallback((messageId: string, y: number) => {
-    if (messageId) {
-      messagePositions.current.set(messageId, y);
+    if (messages.length > 0 && previousMessagesLength.current === 0) {
+      // Primeira carga
+      scrollViewRef.current?.scrollToEnd({ animated: false });
+      lastSeenMessageCount.current = messages.length;
     }
   }, []);
+
+  // === Posições das mensagens (para scrollToMessage) ===
+  const handleMessageLayout = useCallback((messageId: string, y: number) => {
+    messagePositions.current.set(messageId, y);
+  }, []);
+
+  const scrollToMessage = useCallback(
+    (messageId: string) => {
+      if (!messageId) return;
+
+      const position = messagePositions.current.get(messageId);
+      if (position !== undefined && scrollViewRef.current) {
+        shouldAutoScroll.current = false;
+        setHighlightedMessageId(messageId);
+
+        const offsetFromTop = 120;
+        const targetY = Math.max(0, position - offsetFromTop);
+
+        scrollViewRef.current.scrollTo({ y: targetY, animated: true });
+
+        // Volta auto-scroll após 4s
+        setTimeout(() => {
+          setHighlightedMessageId(null);
+          shouldAutoScroll.current = true;
+        }, 4000);
+      }
+    },
+    [scrollViewRef]
+  );
+
+  // === Scroll behavior ===
+  const handleScroll = useCallback(
+    (event: any) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const offsetY = contentOffset.y;
+      const isNearBottom =
+        offsetY + layoutMeasurement.height >= contentSize.height - NEAR_BOTTOM_THRESHOLD;
+
+      const wasNearBottom = shouldAutoScroll.current;
+      shouldAutoScroll.current = isNearBottom;
+
+      // Limpa seleção se rolar rápido
+      if (selectedMessageId && Math.abs(event.nativeEvent.velocity?.y || 0) > 0.5) {
+        setSelectedMessageId(null);
+      }
+
+      // Atualiza botão de scroll to bottom
+      const shouldShowButton = !isNearBottom && contentSize.height > layoutMeasurement.height;
+      if (shouldShowButton !== showScrollToBottom) {
+        setShowScrollToBottom(shouldShowButton);
+        Animated.timing(scrollButtonOpacity, {
+          toValue: shouldShowButton ? 1 : 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
+
+      // Se chegou no final, zera unread
+      if (isNearBottom && !wasNearBottom) {
+        setUnreadCount(0);
+        lastSeenMessageCount.current = messages.length;
+      }
+
+      lastContentOffset.current = offsetY;
+    },
+    [
+      showScrollToBottom,
+      scrollButtonOpacity,
+      selectedMessageId,
+      messages.length,
+    ]
+  );
+
+  const handleContentSizeChange = useCallback(
+    (width: number, height: number) => {
+      // Só scroll automático se o conteúdo cresceu e o usuário estava perto do final
+      if (height > contentHeight.current && shouldAutoScroll.current) {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+      contentHeight.current = height;
+    },
+    [scrollViewRef]
+  );
 
   const scrollToBottomWithButton = useCallback(() => {
     shouldAutoScroll.current = true;
@@ -257,66 +301,15 @@ export const MessagesList: React.FC<MessagesListProps> = ({
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [scrollViewRef, messages.length]);
 
-  const scrollToMessage = useCallback((messageId: string) => {
-    if (!messageId) return;
-    const position = messagePositions.current.get(messageId);
-    if (position !== undefined && scrollViewRef.current) {
-      shouldAutoScroll.current = false;
-      setHighlightedMessageId(messageId);
-      const offsetFromTop = 100;
-      const scrollPosition = Math.max(0, position - offsetFromTop);
-      scrollViewRef.current.scrollTo({ y: scrollPosition, animated: true });
-      setTimeout(() => {
-        setHighlightedMessageId(null);
-        shouldAutoScroll.current = true;
-      }, 4000);
-    }
-  }, [scrollViewRef]);
-
-  const handleScroll = useCallback((event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    contentHeight.current = contentSize.height;
-    scrollViewHeight.current = layoutMeasurement.height;
-    const isNearBottom = (contentOffset.y + layoutMeasurement.height) >= (contentSize.height - 100);
-    const wasAutoScrolling = shouldAutoScroll.current;
-    shouldAutoScroll.current = isNearBottom;
-    const shouldShowButton = !isNearBottom && contentSize.height > layoutMeasurement.height;
-    if (selectedMessageId && Math.abs(event.nativeEvent.velocity?.y || 0) > 0.5) {
-      setSelectedMessageId(null);
-    }
-    if (shouldShowButton !== showScrollToBottom) {
-      setShowScrollToBottom(shouldShowButton);
-      Animated.timing(scrollButtonOpacity, {
-        toValue: shouldShowButton ? 1 : 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    }
-    if (isNearBottom && !wasAutoScrolling) {
-      setUnreadCount(0);
-      lastSeenMessageCount.current = messages.length;
-    }
-  }, [scrollButtonOpacity, showScrollToBottom, messages.length, selectedMessageId]);
-
-  const handleContentSizeChange = useCallback((width: number, height: number) => {
-    contentHeight.current = height;
-    if (isInitialMount.current || shouldAutoScroll.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: !isInitialMount.current });
-      }, 10);
-    }
-  }, [scrollViewRef]);
-
-  const uniqueMessages = useMemo<Message[]>(() =>
-    resolvedMessages
-      .filter(msg => msg && msg._id)
-      .reduce<Message[]>((acc, msg) => {
-        if (!acc.some(m => m._id === msg._id)) {
-          acc.push(msg);
-        }
-        return acc;
-      }, []),
-  [resolvedMessages]);
+  // === Remoção de duplicatas (O(n)) ===
+  const uniqueMessages = useMemo(() => {
+    const seen = new Set<string>();
+    return resolvedMessages.filter((msg) => {
+      if (!msg._id || seen.has(msg._id)) return false;
+      seen.add(msg._id);
+      return true;
+    });
+  }, [resolvedMessages]);
 
   return (
     <View style={styles.container}>
@@ -325,43 +318,26 @@ export const MessagesList: React.FC<MessagesListProps> = ({
         style={styles.messagesContainer}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        onContentSizeChange={handleContentSizeChange}
         onScroll={handleScroll}
         scrollEventThrottle={16}
-        onLayout={(event) => {
-          scrollViewHeight.current = event.nativeEvent.layout.height;
-        }}
+        onContentSizeChange={handleContentSizeChange}
         refreshControl={
           onRefresh ? (
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
               tintColor="#3b82f6"
-              colors={["#3b82f6"]}
-              title="Atualizando chat..."
-              titleColor="#ffffff"
-              progressBackgroundColor="rgba(255, 255, 255, 0.1)"
-              enabled={true}
+              colors={['#3b82f6']}
             />
           ) : undefined
         }
       >
-       
-        {loadingBadges.size > 0 && (
-          <View style={styles.loadingBadgesContainer}>
-            <ActivityIndicator size="small" color="#3b82f6" />
-            <Text style={styles.loadingBadgesText}>
-              Carregando badges...
-            </Text>
-          </View>
-        )}
-
         {uniqueMessages.map((message) => (
           <View
             key={message._id}
             style={[
               styles.messageWrapper,
-              highlightedMessageId === message._id && styles.highlightedMessage
+              highlightedMessageId === message._id && styles.highlightedMessage,
             ]}
             onLayout={(event) => {
               const { y } = event.nativeEvent.layout;
@@ -387,18 +363,19 @@ export const MessagesList: React.FC<MessagesListProps> = ({
           </View>
         ))}
       </ScrollView>
+
+      {/* Overlay fixo para loading de badges (opcional, mais visível) */}
+      {loadingBadges.size > 0 && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="small" color="#3b82f6" />
+          <Text style={styles.loadingText}>Carregando badges...</Text>
+        </View>
+      )}
+
+      {/* Botão scroll to bottom */}
       {showScrollToBottom && (
-        <Animated.View
-          style={[
-            styles.scrollToBottomButton,
-            { opacity: scrollButtonOpacity }
-          ]}
-        >
-          <TouchableOpacity
-            onPress={scrollToBottomWithButton}
-            style={styles.scrollButtonTouchable}
-            activeOpacity={0.8}
-          >
+        <Animated.View style={[styles.scrollToBottomButton, { opacity: scrollButtonOpacity }]}>
+          <TouchableOpacity onPress={scrollToBottomWithButton} style={styles.scrollButtonTouchable}>
             <Text style={styles.scrollButtonArrow}>↓</Text>
             {unreadCount > 0 && (
               <View style={styles.unreadBadge}>
@@ -421,28 +398,32 @@ const styles = StyleSheet.create({
   },
   messagesContainer: {
     flex: 1,
-    marginBottom: height * 0.02,
+    paddingBottom: windowHeight * 0.02,
   },
   messageWrapper: {
     overflow: 'visible',
   },
   highlightedMessage: {
-    backgroundColor: 'rgba(255, 0, 0, 0.1)',
-    borderRadius: 8,
+    backgroundColor: 'rgba(255, 215, 0, 0.2)',
+    borderRadius: 12,
     marginHorizontal: 4,
     paddingHorizontal: 4,
-    paddingVertical: 2,
+    paddingVertical: 4,
   },
-  loadingBadgesContainer: {
+  loadingOverlay: {
+    position: 'absolute',
+    top: 20,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    alignItems: 'center',
     gap: 8,
+    zIndex: 10,
   },
-  loadingBadgesText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 12,
+  loadingText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 13,
     fontFamily: 'Inter-Regular',
   },
   scrollToBottomButton: {
@@ -459,10 +440,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,

@@ -1,3 +1,5 @@
+// services/syncService.ts
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { messageRepository } from '../data/messageRepository';
 import { syncRepository } from '../data/syncRepository';
@@ -6,170 +8,37 @@ import { API_URL } from '../utils/api';
 import { networkManager } from './networkManager';
 
 export class SyncService {
-  private syncInProgress = false;
-  private syncCallbacks: ((messages: Message[]) => void)[] = [];
-  private syncTimeout: NodeJS.Timeout | null = null;
+  private isSyncing = false;
 
   async syncWithServer(username: string): Promise<void> {
-    if (this.syncInProgress || !networkManager.isOnline()) return;
+    if (this.isSyncing || !networkManager.isOnline()) return;
 
-    if (this.syncTimeout) clearTimeout(this.syncTimeout);
-    await new Promise(resolve => { this.syncTimeout = setTimeout(resolve, 500); });
-    this.syncInProgress = true;
+    this.isSyncing = true;
     const token = await AsyncStorage.getItem('token');
 
     try {
-      console.log('[SyncService] 🔄 Iniciando sincronização...');
+      console.log('[SyncService] Iniciando sincronização completa...');
+
+      // 1. Busca mensagens novas do servidor
       await this.fetchNewMessagesFromServer(username, token);
-      await this.syncPendingMessagesToServer(token);
-      await this.processSyncQueue(token);
+
+      // 2. Envia mensagens pendentes da fila (CREATE)
+      await this.syncPendingCreations(token);
+
+      // 3. Processa reações pendentes (REACTION)
+      await this.processReactionQueue(token);
+
+      // 4. Atualiza UI com estado final do banco
       const allMessages = await messageRepository.getAllMessages();
       this.notifyListeners(allMessages);
     } catch (error) {
-      console.error('[SyncService] ❌ Erro geral na sync:', error);
-      throw error;
+      console.error('[SyncService] Erro na sincronização geral:', error);
     } finally {
-      this.syncInProgress = false;
+      this.isSyncing = false;
     }
   }
 
-  async fetchMissedMessages(username: string, since?: Date): Promise<Message[]> {
-    if (!networkManager.isOnline()) return [];
-
-    try {
-      console.log('[SyncService] 🔍 Buscando mensagens perdidas...');
-      const token = await AsyncStorage.getItem('token');
-      let url = `${API_URL}/api/messages`;
-      if (since) url += `?since=${since.toISOString()}`;
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-
-      const serverMessages: Message[] = data.map((msg: any) => ({
-        ...msg,
-        isOwn: msg.username === username,
-        timestamp: new Date(msg.timestamp),
-        reactions: msg.reactions || {},
-        isSynced: true,
-        isPending: false,
-        tempId: undefined, 
-      }));
-
-      let hasUpdates = false;
-      for (const msg of serverMessages) {
-        const exists = await messageRepository.getMessageById(msg._id);
-        if (!exists) {
-          await messageRepository.saveMessage(msg, false);
-          hasUpdates = true;
-        } else if (JSON.stringify(exists.reactions) !== JSON.stringify(msg.reactions)) {
-          await messageRepository.updateMessage(msg._id, { reactions: msg.reactions });
-          hasUpdates = true;
-        }
-      }
-
-      if (hasUpdates) {
-        const allMessages = await messageRepository.getAllMessages();
-        this.notifyListeners(allMessages);
-      }
-
-      return serverMessages;
-    } catch (error) {
-      console.error('[SyncService] ❌ Erro ao buscar mensagens:', error);
-      return [];
-    }
-  }
-
-  private async syncPendingMessagesToServer(token: string | null): Promise<void> {
-    const pendingMessages = await messageRepository.getPendingMessages();
-    for (const message of pendingMessages) {
-      try {
-        const serverResponse = await this.syncMessage(message, token);
-        const updatedMessage: Message = {
-          _id: serverResponse._id,
-          username: serverResponse.username || message.username,
-          text: serverResponse.text || message.text,
-          type: serverResponse.type || message.type,
-          audioUri: serverResponse.audioUri || message.audioUri,
-          audioDuration: serverResponse.audioDuration || message.audioDuration,
-          timestamp: new Date(serverResponse.timestamp),
-          replyTo: serverResponse.replyTo || message.replyTo,
-          reactions: serverResponse.reactions || message.reactions,
-          isOwn: serverResponse.username === message.username,
-          isSynced: true,
-          isPending: false,
-          tempId: undefined, 
-        };
-        await messageRepository.updateMessageWithNewId(message._id, updatedMessage);
-      } catch (error) {
-        console.error(`[SyncService] ❌ Falha ao sincronizar mensagem ${message._id}:`, error);
-      }
-    }
-  }
-
-  private async syncMessage(message: Message, token: string | null): Promise<any> {
-    if (message.type === 'voice' && message.audioUri) {
-      const formData = new FormData();
-      formData.append('audio', {
-        uri: message.audioUri,
-        type: 'audio/m4a',
-        name: `recording-${Date.now()}.m4a`,
-      } as any);
-      formData.append('text', message.text);
-      formData.append('type', 'voice');
-      formData.append('audioDuration', message.audioDuration?.toString() || '0');
-      
-     
-      if (message.replyTo) {
-        const replyToId = typeof message.replyTo === 'string' 
-          ? message.replyTo 
-          : message.replyTo._id;
-        formData.append('replyTo', replyToId);
-      }
-
-      const res = await fetch(`${API_URL}/api/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: Falha no áudio`);
-      }
-
-      return await res.json();
-    } else {
-      const res = await fetch(`${API_URL}/api/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: message.text,
-          type: message.type,
-          
-          replyTo: message.replyTo ? (typeof message.replyTo === 'string' ? message.replyTo : message.replyTo._id) : null,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: Falha no texto`);
-      }
-
-      return await res.json();
-    }
-  }
-
+  // Busca mensagens perdidas do servidor
   private async fetchNewMessagesFromServer(username: string, token: string | null): Promise<void> {
     try {
       const lastSync = await messageRepository.getLastSyncTimestamp();
@@ -178,23 +47,17 @@ export class SyncService {
 
       const res = await fetch(url, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: Falha no fetch`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data = await res.json();
-
-      const serverMessages: Message[] = data.map((msg: any) => ({
-        ...msg,
-        isOwn: msg.username === username,
-        timestamp: new Date(msg.timestamp),
-        reactions: msg.reactions || {},
-        isSynced: true,
-        isPending: false,
-        tempId: undefined, 
+      const serverMessages: Message[] = data.map((m: any) => ({
+        ...m,
+        isOwn: m.username === username,
+        timestamp: new Date(m.timestamp),
+        reactions: m.reactions || {},
       }));
 
       for (const msg of serverMessages) {
@@ -208,87 +71,138 @@ export class SyncService {
 
       await messageRepository.updateLastSyncTimestamp(new Date());
     } catch (error) {
-      console.error('[SyncService] ❌ Erro ao buscar mensagens do servidor:', error);
+      console.error('[SyncService] Erro ao buscar mensagens do servidor:', error);
     }
   }
 
-  private async processSyncQueue(token: string | null): Promise<void> {
-  
-    const syncQueue = await syncRepository.getSyncQueue();
-    for (const item of syncQueue) {
+  // Envia apenas mensagens que estão na sync_queue com action = 'CREATE'
+  private async syncPendingCreations(token: string | null): Promise<void> {
+    const queue = await syncRepository.getSyncQueue();
+    const createItems = queue.filter(item => item.action === 'CREATE');
+
+    for (const item of createItems) {
       try {
-        if (item.action === 'REACTION') {
-          await this.syncReaction(item, token);
+        const payload = JSON.parse(item.data);
+
+        let body: any;
+        let headers: any = { Authorization: `Bearer ${token}` };
+
+        if (payload.type === 'voice' && payload.audioUri) {
+          const form = new FormData();
+          form.append('audio', {
+            uri: payload.audioUri,
+            type: 'audio/m4a',
+            name: `voice-${item.messageId}.m4a`,
+          } as any);
+          form.append('text', payload.text);
+          form.append('type', 'voice');
+          form.append('audioDuration', String(payload.audioDuration || 0));
+          if (payload.replyTo) form.append('replyTo', payload.replyTo);
+          body = form;
+        } else {
+          headers['Content-Type'] = 'application/json';
+          body = JSON.stringify({
+            text: payload.text,
+            type: payload.type || 'text',
+            replyTo: payload.replyTo || null,
+          });
         }
+
+        const res = await fetch(`${API_URL}/api/messages`, {
+          method: 'POST',
+          headers,
+          body,
+        });
+
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(`HTTP ${res.status}: ${err}`);
+        }
+
+        const serverMsg = await res.json();
+
+        // Substitui tempId pelo _id real
+        await messageRepository.updateMessageWithNewId(item.messageId, {
+          ...serverMsg,
+          isOwn: true,
+          timestamp: new Date(serverMsg.timestamp),
+          reactions: serverMsg.reactions || {},
+        });
+
+        // Remove da fila com sucesso
+        await syncRepository.removeSyncQueueItem(item.id);
+        console.log(`Mensagem sincronizada: ${item.messageId} → ${serverMsg._id}`);
+
+      } catch (error) {
+        console.error(`Falha ao sincronizar ${item.messageId}:`, error);
+        await syncRepository.incrementSyncAttempts(item.id);
+
+        // Se esgotou tentativas → remove da fila (evita loop infinito)
+        const updatedItem = await syncRepository.getSyncQueue().then(q => q.find(i => i.id === item.id));
+        if (updatedItem && updatedItem.attempts >= updatedItem.maxAttempts) {
+          await syncRepository.removeSyncQueueItem(item.id);
+          console.warn(`Mensagem ${item.messageId} descartada após ${updatedItem.maxAttempts} tentativas`);
+        }
+      }
+    }
+  }
+
+  // Processa reações offline
+  private async processReactionQueue(token: string | null): Promise<void> {
+    const queue = await syncRepository.getSyncQueue();
+    const reactionItems = queue.filter(i => i.action === 'REACTION');
+
+    for (const item of reactionItems) {
+      try {
+        const data = JSON.parse(item.data);
+        const res = await fetch(`${API_URL}/api/messages/reaction`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(data),
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         await syncRepository.removeSyncQueueItem(item.id);
       } catch (error) {
-        console.error(`[SyncService] ❌ Falha no item da fila ${item.id}:`, error);
         await syncRepository.incrementSyncAttempts(item.id);
       }
     }
   }
 
-  private async syncReaction(item: any, token: string | null): Promise<void> {
-    const data = JSON.parse(item.data);
-    const response = await fetch(`${API_URL}/api/messages/reaction`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: Falha na reação`);
-    }
-  }
-
+  // Adiciona reação offline (já estava bom, só deixei aqui pra referência)
   async addReactionOffline(messageId: string, emoji: string, username: string): Promise<void> {
     const message = await messageRepository.getMessageById(messageId);
     if (!message) return;
 
     const reactions = { ...message.reactions };
-    const current = reactions[emoji] || [];
-    const idx = current.indexOf(username);
+    const users = reactions[emoji] || [];
+    const idx = users.indexOf(username);
 
     if (idx === -1) {
-      reactions[emoji] = [...current, username];
+      reactions[emoji] = [...users, username];
     } else {
-      const newUsers = current.filter(u => u !== username);
-      if (newUsers.length === 0) {
-        delete reactions[emoji];
-      } else {
-        reactions[emoji] = newUsers;
-      }
+      const filtered = users.filter(u => u !== username);
+      if (filtered.length === 0) delete reactions[emoji];
+      else reactions[emoji] = filtered;
     }
 
     await messageRepository.updateMessage(messageId, { reactions });
     await syncRepository.addToSyncQueue(messageId, 'REACTION', { messageId, emoji, username });
   }
 
-  onSyncComplete(callback: (messages: Message[]) => void): void {
+  // Callbacks para notificar o hook
+  private syncCallbacks: ((messages: Message[]) => void)[] = [];
+
+  onSyncComplete(callback: (messages: Message[]) => void) {
     this.syncCallbacks.push(callback);
   }
 
-  removeListener(callback: (messages: Message[]) => void): void {
-    this.syncCallbacks = this.syncCallbacks.filter(cb => cb !== callback);
-  }
-
-  private notifyListeners(messages: Message[]): void {
+  private notifyListeners(messages: Message[]) {
     this.syncCallbacks.forEach(cb => cb(messages));
-  }
-
-  isSyncing(): boolean {
-    return this.syncInProgress;
-  }
-
-  cancelSync(): void {
-    if (this.syncTimeout) {
-      clearTimeout(this.syncTimeout);
-      this.syncTimeout = null;
-    }
-    this.syncInProgress = false;
   }
 }
 

@@ -1,13 +1,12 @@
 import { ManualSetupModal } from "@/components/setup/ManualSetupModal";
 import { TimerDisplay } from "@/components/timer/TimerDisplay";
-import { MotivationService } from "@/constants/MotivationService";
 import { useTimer } from "@/hooks/useTimer";
 import { BadgeService } from "@/services/badgeService";
-import { LinearGradient } from "expo-linear-gradient";
-import { RotateCcw, Settings, TrendingUp } from "lucide-react-native";
+import { RotateCcw, Settings } from "lucide-react-native";
 import React from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StreakDisplay } from "../../components/StreakDisplay/StreakDisplay"; // ← Nova importação
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -64,7 +63,7 @@ export default function HomeScreen() {
             />
           </View>
 
-          {/* Alavanca de Ajustar do lado esquerdo */}
+          {/* Alavanca de Ajustar */}
           {timerState.isRunning && (
             <View style={styles.setupLeverContainer}>
               <View style={styles.leverBase}>
@@ -76,19 +75,16 @@ export default function HomeScreen() {
                   onPress={showSetupModal}
                   activeOpacity={0.8}
                 >
-                  <LinearGradient
-                    colors={["#3b82f6", "#1d4ed8"]}
-                    style={styles.setupLeverButtonGradient}
-                  >
+                  <View style={styles.setupLeverButton}>
                     <Settings size={18} color="#ffffff" />
-                  </LinearGradient>
+                  </View>
                 </TouchableOpacity>
               </View>
               <Text style={styles.setupLeverLabel}>Ajuste seu tempo</Text>
             </View>
           )}
 
-          {/* Alavanca de Reset do lado direito */}
+          {/* Alavanca de Reset */}
           {timerState.isRunning && (
             <View style={styles.resetLeverContainer}>
               <View style={styles.leverBase}>
@@ -100,12 +96,9 @@ export default function HomeScreen() {
                   onPress={resetTimer}
                   activeOpacity={0.8}
                 >
-                  <LinearGradient
-                    colors={["#ef4444", "#ff0505ff"]}
-                    style={styles.resetLeverButtonGradient}
-                  >
+                  <View style={styles.resetLeverButton}>
                     <RotateCcw size={18} color="#ffffff" />
-                  </LinearGradient>
+                  </View>
                 </TouchableOpacity>
               </View>
               <Text style={styles.resetLeverLabel}>Reset</Text>
@@ -113,25 +106,11 @@ export default function HomeScreen() {
           )}
         </View>
 
-        {/* Sequência */}
-        <View style={styles.streakSection}>
-          <View style={styles.streakContainer}>
-            <View style={styles.streakHeader}>
-              <TrendingUp size={16} color="#64748b" />
-              <Text style={styles.streakLabel}>Sequência Atual</Text>
-            </View>
-            <Text style={styles.streakNumber}>{timerState.currentStreak}</Text>
-            <Text style={styles.streakUnit}>dias consecutivos</Text>
-
-            {timerState.currentStreak > 0 && (
-              <Text style={styles.motivationText}>
-                {MotivationService.getMotivationMessage(
-                  timerState.currentStreak
-                )}
-              </Text>
-            )}
-          </View>
-        </View>
+        {/* Sequência com foguinho - agora em componente separado */}
+        <StreakDisplay
+          currentStreak={timerState.currentStreak}
+          isTimerRunning={timerState.isRunning}
+        />
       </View>
 
       <ManualSetupModal
@@ -143,11 +122,12 @@ export default function HomeScreen() {
   );
 }
 
+// ... (mantenha apenas os styles que ainda são usados no HomeScreen)
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    paddingHorizontal: 12, 
-    backgroundColor: "#000000" 
+  container: {
+    flex: 1,
+    paddingHorizontal: 12,
+    backgroundColor: "#000000",
   },
   content: { flex: 1, justifyContent: "space-between" },
   header: { alignItems: "center" },
@@ -216,21 +196,23 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  setupLeverButtonGradient: {
+  setupLeverButton: {
     width: 45,
     height: 45,
     borderRadius: 22.5,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#3b82f6",
     borderWidth: 3,
     borderColor: "#93c5fd",
   },
-  resetLeverButtonGradient: {
+  resetLeverButton: {
     width: 45,
     height: 45,
     borderRadius: 22.5,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#ef4444",
     borderWidth: 3,
     borderColor: "#fca5a5",
   },
@@ -249,26 +231,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  streakSection: { marginVertical: 10 },
-  streakContainer: { 
-    padding: 16, 
-    borderRadius: 12, 
-    alignItems: "center",
-    backgroundColor: "#000",
-    borderWidth: 1,
-    borderColor: "#000",
-  },
-  streakHeader: { flexDirection: "row", alignItems: "center" },
-  streakLabel: { fontSize: 14, color: "#64748b", marginLeft: 6 },
-  streakNumber: { fontSize: 48, color: "#fff", fontFamily: "Inter-Bold" },
-  streakUnit: { fontSize: 14, color: "#64748b" },
-  motivationText: {
-    fontSize: 12,
-    color: "#fff",
-    marginTop: 6,
-    textAlign: "center",
-    fontStyle: "italic",
-  },
+  // === Badge ===
   badgeContainer: {
     alignItems: "center",
     justifyContent: "center",

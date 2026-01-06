@@ -234,3 +234,4 @@ const styles = StyleSheet.create({
   },
 });
 
+export default EmailVerificationScreen;

@@ -2,17 +2,17 @@
   "expo": {
     "name": "Fap Zerø",
     "slug": "nofap",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "nofap", 
+    "scheme": "nofap",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
     "android": {
-       "versionCode": 22,
+      "versionCode": 25,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -54,7 +54,9 @@
         }
       ],
       "expo-audio",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-build-properties",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

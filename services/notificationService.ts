@@ -179,7 +179,7 @@ export class NotificationService {
             identifier: `motivational-${futureStreak}`,
             content: {
               title: randomTitle,
-              body: `...`, 
+              body: `continue firme!!`, 
               data: { type: 'motivational' },
               sound: false, 
             },

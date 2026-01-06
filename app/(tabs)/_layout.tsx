@@ -62,7 +62,7 @@ export default function TabLayout() {
         }}
       />
        <Tabs.Screen
-        name="ResetsScreen"
+        name="reset"
         options={{
           title: 'resets',
           tabBarIcon: ({ size, color }) => <RotateCcw size={size} color={color} />,

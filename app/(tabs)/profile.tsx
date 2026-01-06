@@ -201,6 +201,7 @@ export default function ProfileScreen() {
         <View style={styles.statsContainer}>
           <Text style={styles.sectionTitle}>
             <Trophy size={20} color="#ffffff" /> Estatísticas
+            
           </Text>
           <View style={styles.statsGrid}>
             <View style={[styles.statCard, styles.statCardPrimary]}>
@@ -307,7 +308,7 @@ export default function ProfileScreen() {
           <Text style={styles.sectionTitle}>Informações</Text>
           <View style={styles.infoCard}>
             <Text style={styles.infoText}>
-              Versão: <Text style={styles.infoBold}>1.0.13</Text>
+              Versão: <Text style={styles.infoBold}>1.0.14</Text>
             </Text>
             {joinDate && (
               <Text style={styles.infoText}>
